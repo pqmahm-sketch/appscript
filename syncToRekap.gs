@@ -12,6 +12,8 @@ var REGION_MAP = {
   "U10": "R3", "V2Z": "R3", "W01": "R3", "Z11": "R3"
 };
 
+var REKAP_FOLDER_ID = "0AJuZm4K3MzzeUk9PVA";
+
 function syncToRekapLookerStudio() {
   var responsesSS = SpreadsheetApp.openById(RESPONSES_SPREADSHEET_ID);
   var formSheet = responsesSS.getSheetByName("Form Responses 1");
@@ -21,20 +23,40 @@ function syncToRekapLookerStudio() {
 
   var formData = formSheet.getRange(2, 1, lastRow - 1, 9).getValues();
 
-  // Gunakan data terbaru per AHASS (jika ada duplikat, ambil yang terakhir)
+  // Kumpulkan nama lengkap MD dan data terbaru per AHASS
+  var mdFullNames = {};
   var latestByAhass = {};
+  var allEntriesByMD = {};
+
   for (var i = 0; i < formData.length; i++) {
     var noAhass = String(formData[i][1]).trim();
+    var mainDealerFull = String(formData[i][2]).trim();
     var hasil = String(formData[i][3]).trim();
+    var alasanNG = String(formData[i][4]).trim();
+    var linkFoto = String(formData[i][8] || "").trim();
+    var kodeMD = mainDealerFull.split(" - ")[0].trim();
+
     if (!noAhass) continue;
+
+    mdFullNames[kodeMD] = mainDealerFull;
+
     latestByAhass[noAhass] = {
-      mainDealer: String(formData[i][2]).trim(),
+      mainDealer: mainDealerFull,
       hasil: hasil,
-      kodeMD: String(formData[i][2]).split(" - ")[0].trim()
+      kodeMD: kodeMD
     };
+
+    if (!allEntriesByMD[kodeMD]) allEntriesByMD[kodeMD] = [];
+    allEntriesByMD[kodeMD].push({
+      noAhass: noAhass,
+      mainDealer: mainDealerFull,
+      hasil: hasil,
+      alasanNG: alasanNG,
+      linkFoto: linkFoto
+    });
   }
 
-  // Hitung OK dan NG per Kode MD
+  // Hitung OK dan NG per Kode MD (berdasarkan data terbaru per AHASS)
   var countOK = {};
   var countNG = {};
   var ahassKeys = Object.keys(latestByAhass);
@@ -58,13 +80,18 @@ function syncToRekapLookerStudio() {
   var regionOK = {};
   var regionNG = {};
   var regionTerdaftar = {};
+  var mdWithData = [];
 
   for (var r = 1; r < rekapData.length; r++) {
     var kodeMD = String(rekapData[r][0]).trim();
     var terdaftar = Number(rekapData[r][2]) || 0;
 
-    // Skip baris region dan nasional (akan dihitung dari agregasi)
     if (kodeMD === "R1" || kodeMD === "R2" || kodeMD === "R3" || kodeMD === "N45") continue;
+
+    // Update Nama Main Dealer (kolom B) dengan nama lengkap dari Responses
+    if (mdFullNames[kodeMD]) {
+      rekapSheet.getRange(r + 1, 2).setValue(mdFullNames[kodeMD]);
+    }
 
     var ok = countOK[kodeMD] || 0;
     var ng = countNG[kodeMD] || 0;
@@ -75,7 +102,10 @@ function syncToRekapLookerStudio() {
     rekapSheet.getRange(r + 1, 5).setValue(ng);
     rekapSheet.getRange(r + 1, 6).setValue(belumKirim);
 
-    // Akumulasi untuk region
+    if (ok > 0 || ng > 0) {
+      mdWithData.push(kodeMD);
+    }
+
     var region = REGION_MAP[kodeMD];
     if (region) {
       if (!regionOK[region]) regionOK[region] = 0;
@@ -113,17 +143,20 @@ function syncToRekapLookerStudio() {
     }
   }
 
-  // Update sheet Pivot untuk Pie Chart
-  updatePivotSheet(rekapSS, rekapSheet);
+  // Update Pivot untuk Pie Chart (baca ulang setelah update nama)
+  var updatedRekapData = rekapSheet.getDataRange().getValues();
+  updatePivotSheet(rekapSS, updatedRekapData);
+
+  // Update Download Links untuk semua MD yang punya data
+  updateDownloadLinks(rekapSS, allEntriesByMD, mdWithData, mdFullNames);
 
   Logger.log("Sync ke Rekap Looker Studio selesai.");
 }
 
-function updatePivotSheet(rekapSS, rekapSheet) {
+function updatePivotSheet(rekapSS, rekapData) {
   var pivotSheet = rekapSS.getSheetByName("Pivot untuk Pie Chart");
   if (!pivotSheet) return;
 
-  var rekapData = rekapSheet.getDataRange().getValues();
   var pivotData = [["Nama Main Dealer", "Status", "Jumlah"]];
 
   for (var i = 1; i < rekapData.length; i++) {
@@ -139,6 +172,88 @@ function updatePivotSheet(rekapSS, rekapSheet) {
 
   pivotSheet.clearContents();
   pivotSheet.getRange(1, 1, pivotData.length, 3).setValues(pivotData);
+}
+
+function updateDownloadLinks(rekapSS, allEntriesByMD, mdWithData, mdFullNames) {
+  var dlSheet = rekapSS.getSheetByName("Download Links");
+  if (!dlSheet) return;
+
+  var existingData = dlSheet.getDataRange().getValues();
+  var existingLinks = {};
+  for (var e = 1; e < existingData.length; e++) {
+    var existKode = String(existingData[e][0]).trim();
+    var existLink = String(existingData[e][2]).trim();
+    if (existKode && existLink) {
+      // Ekstrak spreadsheet ID dari URL
+      var match = existLink.match(/\/d\/([a-zA-Z0-9_-]+)\//);
+      if (match) {
+        existingLinks[existKode] = match[1];
+      }
+    }
+  }
+
+  var dlRows = [["Kode MD", "Nama Main Dealer", "Download Link"]];
+
+  for (var m = 0; m < mdWithData.length; m++) {
+    var kodeMD = mdWithData[m];
+    var namaMD = mdFullNames[kodeMD] || kodeMD;
+    var entries = allEntriesByMD[kodeMD] || [];
+
+    var ssId;
+    if (existingLinks[kodeMD]) {
+      // Gunakan spreadsheet yang sudah ada, update isinya
+      ssId = existingLinks[kodeMD];
+      try {
+        var existingSS = SpreadsheetApp.openById(ssId);
+        var sheet = existingSS.getSheets()[0];
+        sheet.clearContents();
+        writePerMDData(sheet, entries);
+      } catch (err) {
+        // Spreadsheet lama tidak bisa diakses, buat baru
+        ssId = createPerMDSpreadsheet(kodeMD, namaMD, entries);
+      }
+    } else {
+      ssId = createPerMDSpreadsheet(kodeMD, namaMD, entries);
+    }
+
+    var downloadUrl = "https://docs.google.com/spreadsheets/d/" + ssId + "/export?format=xlsx";
+    dlRows.push([kodeMD, namaMD, downloadUrl]);
+  }
+
+  dlSheet.clearContents();
+  dlSheet.getRange(1, 1, dlRows.length, 3).setValues(dlRows);
+}
+
+function createPerMDSpreadsheet(kodeMD, namaMD, entries) {
+  var newSS = SpreadsheetApp.create("Data Verifikasi Noxudol - " + kodeMD);
+  var sheet = newSS.getSheets()[0];
+  writePerMDData(sheet, entries);
+
+  // Pindahkan ke folder Rekap jika memungkinkan
+  try {
+    var file = DriveApp.getFileById(newSS.getId());
+    var folder = DriveApp.getFolderById(REKAP_FOLDER_ID);
+    folder.addFile(file);
+    DriveApp.getRootFolder().removeFile(file);
+  } catch (err) {
+    Logger.log("Tidak bisa pindahkan file ke folder: " + err.message);
+  }
+
+  return newSS.getId();
+}
+
+function writePerMDData(sheet, entries) {
+  var data = [["No. AHASS", "Nama Main Dealer", "Hasil Penilaian", "Alasan NG", "Link Foto Bukti"]];
+  for (var i = 0; i < entries.length; i++) {
+    data.push([
+      entries[i].noAhass,
+      entries[i].mainDealer,
+      entries[i].hasil,
+      entries[i].alasanNG,
+      entries[i].linkFoto
+    ]);
+  }
+  sheet.getRange(1, 1, data.length, 5).setValues(data);
 }
 
 function createSyncTriggerTimeDriven() {
