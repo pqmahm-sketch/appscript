@@ -208,6 +208,8 @@ function updateDownloadLinks(rekapSS, allEntriesByMD, mdWithData, mdFullNames) {
         var sheet = existingSS.getSheets()[0];
         sheet.clearContents();
         writePerMDData(sheet, entries);
+        // Pastikan file tetap bisa diakses semua user
+        DriveApp.getFileById(ssId).setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       } catch (err) {
         // Spreadsheet lama tidak bisa diakses, buat baru
         ssId = createPerMDSpreadsheet(kodeMD, namaMD, entries);
@@ -229,14 +231,18 @@ function createPerMDSpreadsheet(kodeMD, namaMD, entries) {
   var sheet = newSS.getSheets()[0];
   writePerMDData(sheet, entries);
 
-  // Pindahkan ke folder Rekap jika memungkinkan
   try {
     var file = DriveApp.getFileById(newSS.getId());
+
+    // Share: anyone with the link can view (agar bisa didownload semua user)
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    // Pindahkan ke folder Rekap jika memungkinkan
     var folder = DriveApp.getFolderById(REKAP_FOLDER_ID);
     folder.addFile(file);
     DriveApp.getRootFolder().removeFile(file);
   } catch (err) {
-    Logger.log("Tidak bisa pindahkan file ke folder: " + err.message);
+    Logger.log("Error setup file: " + err.message);
   }
 
   return newSS.getId();
