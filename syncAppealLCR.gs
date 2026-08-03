@@ -1,62 +1,54 @@
-var APPEAL_SPREADSHEET_ID = "1abTssFzPCCQrLFcqRKOdB36eTDij8UF4EhjR26wEW8M";
-var APPEAL_SHEET_NAME = "Form Responses 1";
+// Sync hasil banding LCR ke SUMBER HULU (FMA & GKA).
+// Data mentah di dashboard dihasilkan lewat QUERY dari kedua sumber ini,
+// jadi update dilakukan di hulu supaya rantai query otomatis membawa
+// hasil banding turun ke:
+//   Master Verifikasi Video LCR -> [LIVE] Dashboard AMORE For AHM -> For MD.
+// Kolom "Status AHASS" di dashboard adalah kolom derived (dihitung dari
+// kolom D-H), sehingga TIDAK perlu di-sync manual.
 
-var DASHBOARD_SPREADSHEET_ID = "1uU3mG1tu-d9aW1Z-eL-ocOQHhMzg2xPWAN4DvSYmo1o";
-var DASHBOARD_SHEET_NAME = "data mentah";
+var APPEAL_SPREADSHEET_ID = "1abTssFzPCCQrLFcqRKOdB36eTDij8UF4EhjR26wEW8M"; // Tinjau Ulang Video LCR (Responses)
+var APPEAL_SHEET_NAME     = "Form Responses 1";
 
-// Mapping nama kolom Form Responses 1 -> nama kolom data mentah
+// Sumber hulu yang isinya akan di-update
+var SOURCE_SPREADSHEETS = [
+  { id: "1t7ywiElPcdfLsPJ07TI4H-oLJNauT_CyVg2CwKFMN6M", label: "FMA", sheetName: "Form Responses 1" },
+  { id: "1Epr6jzg8XyxyqYU_pYkQ7-Xvz_elRaCOl8StHVhVv3g", label: "GKA", sheetName: "Form Responses 1" }
+];
+
+// Mapping nama kolom di form banding -> nama kolom di sheet sumber (FMA/GKA)
 var COLUMN_MAP = {
   "Proses Aplikasi Flintkote": "Proses Aplikasi Flintkote",
   "Proses Setting Regulator":  "Proses Setting Regulator",
   "Proses Timer":              "Proses Timer",
   "Marking garis pada selang": "Marking garis pada selang",
   "Proses Marking Frame Body": "Proses Marking Frame Body",
-  "Catatan":                   "Catatan Tambahan",
-  "Status Tinjau Ulang":       "Status AHASS"
+  "Catatan":                   "Catatan Tambahan"
 };
 
-var KEY_APPEAL    = "No. Rangka";
-var KEY_DASHBOARD = "No. Rangka";
+var KEY_APPEAL       = "No. Rangka";
+var KEY_SOURCE       = "No. Rangka";
 var TIMESTAMP_APPEAL = "Timestamp";
 
 function syncAppealLCR() {
   var appealSS = SpreadsheetApp.openById(APPEAL_SPREADSHEET_ID);
   var appealSheet = appealSS.getSheetByName(APPEAL_SHEET_NAME);
-  if (!appealSheet) throw new Error("Sheet '" + APPEAL_SHEET_NAME + "' tidak ditemukan.");
-
-  var dashSS = SpreadsheetApp.openById(DASHBOARD_SPREADSHEET_ID);
-  var dashSheet = dashSS.getSheetByName(DASHBOARD_SHEET_NAME);
-  if (!dashSheet) throw new Error("Sheet '" + DASHBOARD_SHEET_NAME + "' tidak ditemukan.");
+  if (!appealSheet) throw new Error("Sheet '" + APPEAL_SHEET_NAME + "' tidak ditemukan di spreadsheet banding.");
 
   var appealValues = appealSheet.getDataRange().getValues();
   if (appealValues.length < 2) {
-    Logger.log("Form Responses 1 kosong.");
+    Logger.log("Sheet banding kosong.");
     return;
   }
+
   var appealHeaderIdx = findHeaderRow(appealValues, KEY_APPEAL);
-  if (appealHeaderIdx < 0) throw new Error("Header '" + KEY_APPEAL + "' tidak ditemukan di Form Responses 1.");
+  if (appealHeaderIdx < 0) throw new Error("Header '" + KEY_APPEAL + "' tidak ditemukan di sheet banding.");
   var appealHeader = appealValues[appealHeaderIdx];
   var appealCol = buildColumnIndex(appealHeader);
 
-  var dashValues = dashSheet.getDataRange().getValues();
-  var dashHeaderIdx = findHeaderRow(dashValues, KEY_DASHBOARD);
-  if (dashHeaderIdx < 0) throw new Error("Header '" + KEY_DASHBOARD + "' tidak ditemukan di data mentah.");
-  var dashHeader = dashValues[dashHeaderIdx];
-  var dashCol = buildColumnIndex(dashHeader);
-
-  // Validasi kolom yang dibutuhkan
   var appealNeeded = [KEY_APPEAL, TIMESTAMP_APPEAL].concat(Object.keys(COLUMN_MAP));
   for (var i = 0; i < appealNeeded.length; i++) {
     if (appealCol[appealNeeded[i]] === undefined) {
-      throw new Error("Kolom '" + appealNeeded[i] + "' tidak ada di Form Responses 1.");
-    }
-  }
-  var dashNeeded = [KEY_DASHBOARD].concat(
-    Object.keys(COLUMN_MAP).map(function (k) { return COLUMN_MAP[k]; })
-  );
-  for (var j = 0; j < dashNeeded.length; j++) {
-    if (dashCol[dashNeeded[j]] === undefined) {
-      throw new Error("Kolom '" + dashNeeded[j] + "' tidak ada di data mentah.");
+      throw new Error("Kolom '" + appealNeeded[i] + "' tidak ada di sheet banding.");
     }
   }
 
@@ -73,64 +65,108 @@ function syncAppealLCR() {
     }
   }
 
-  // Peta No. Rangka -> baris (1-based) di data mentah
-  var dashRowIdx = {};
-  var dashKeyCol = dashCol[KEY_DASHBOARD];
-  for (var d = dashHeaderIdx + 1; d < dashValues.length; d++) {
-    var key = normalizeKey(dashValues[d][dashKeyCol]);
-    if (!key) continue;
-    dashRowIdx[key] = d + 1; // 1-based row untuk getRange
+  var totalAhassUpdated = 0;
+  var totalCellsWritten = 0;
+  var unmatched = {};
+  for (var k in latestByRangka) unmatched[k] = true;
+
+  for (var s = 0; s < SOURCE_SPREADSHEETS.length; s++) {
+    var src = SOURCE_SPREADSHEETS[s];
+    var srcResult = syncOneSource(src, appealCol, latestByRangka);
+    Logger.log("[" + src.label + "] AHASS terupdate: " + srcResult.updatedCount
+      + " | Sel diubah: " + srcResult.cellsWritten
+      + " | Match: " + srcResult.matched);
+    totalAhassUpdated += srcResult.updatedCount;
+    totalCellsWritten += srcResult.cellsWritten;
+    for (var m = 0; m < srcResult.matchedKeys.length; m++) {
+      delete unmatched[srcResult.matchedKeys[m]];
+    }
   }
 
-  // Susun update per kolom (batch per column) supaya efisien
-  var mappedKeys = Object.keys(COLUMN_MAP);
-  var updatesByCol = {};   // colIndex1based -> array of {row, value}
-  var updatedCount = 0;
-  var notFound = [];
+  var unmatchedKeys = Object.keys(unmatched);
+  Logger.log("=== Sync banding LCR selesai ===");
+  Logger.log("Total AHASS terupdate: " + totalAhassUpdated
+    + " | Total sel diubah: " + totalCellsWritten
+    + " | No. Rangka tidak ditemukan di FMA maupun GKA: " + unmatchedKeys.length);
+  if (unmatchedKeys.length) {
+    Logger.log("Contoh No. Rangka tak ditemukan: " + unmatchedKeys.slice(0, 10).join(", "));
+  }
+}
 
-  var rangkaKeys = Object.keys(latestByRangka);
-  for (var k = 0; k < rangkaKeys.length; k++) {
-    var rk = rangkaKeys[k];
-    var targetRow = dashRowIdx[rk];
-    if (!targetRow) {
-      notFound.push(rk);
-      continue;
+function syncOneSource(src, appealCol, latestByRangka) {
+  var ss = SpreadsheetApp.openById(src.id);
+  var sheet = ss.getSheetByName(src.sheetName);
+  if (!sheet) throw new Error("Sheet '" + src.sheetName + "' tidak ditemukan di sumber '" + src.label + "'.");
+
+  var values = sheet.getDataRange().getValues();
+  var headerIdx = findHeaderRow(values, KEY_SOURCE);
+  if (headerIdx < 0) throw new Error("Header '" + KEY_SOURCE + "' tidak ditemukan di sumber '" + src.label + "'.");
+  var col = buildColumnIndex(values[headerIdx]);
+
+  var needed = [KEY_SOURCE].concat(Object.keys(COLUMN_MAP).map(function (k) { return COLUMN_MAP[k]; }));
+  for (var i = 0; i < needed.length; i++) {
+    if (col[needed[i]] === undefined) {
+      throw new Error("Kolom '" + needed[i] + "' tidak ada di sumber '" + src.label + "'.");
     }
-    var appealRow = latestByRangka[rk].row;
-    var changed = false;
-    for (var m = 0; m < mappedKeys.length; m++) {
-      var srcName = mappedKeys[m];
-      var dstName = COLUMN_MAP[srcName];
-      var srcVal = appealRow[appealCol[srcName]];
-      var dstCol1 = dashCol[dstName] + 1;
-      var currentVal = dashValues[targetRow - 1][dashCol[dstName]];
-      if (!valuesEqual(currentVal, srcVal)) {
-        if (!updatesByCol[dstCol1]) updatesByCol[dstCol1] = [];
-        updatesByCol[dstCol1].push({ row: targetRow, value: srcVal });
-        changed = true;
+  }
+
+  // Kumpulkan SEMUA row (1-based) untuk setiap No. Rangka di sumber
+  // (satu rangka bisa muncul >1x kalau ada penilaian ulang oleh PIC).
+  var rowsByRangka = {};
+  for (var r = headerIdx + 1; r < values.length; r++) {
+    var rk = normalizeKey(values[r][col[KEY_SOURCE]]);
+    if (!rk) continue;
+    if (!rowsByRangka[rk]) rowsByRangka[rk] = [];
+    rowsByRangka[rk].push(r + 1); // 1-based
+  }
+
+  var mappedKeys = Object.keys(COLUMN_MAP);
+  var updatesByCol = {};
+  var updatedCount = 0;
+  var matchedKeys = [];
+
+  for (var key in latestByRangka) {
+    var targetRows = rowsByRangka[key];
+    if (!targetRows || !targetRows.length) continue;
+    matchedKeys.push(key);
+    var appealRow = latestByRangka[key].row;
+
+    // Kalau ada beberapa row untuk 1 rangka, timpa SEMUA supaya
+    // query hilir tidak mengambil versi lama.
+    var didWriteAny = false;
+    for (var t = 0; t < targetRows.length; t++) {
+      var targetRow = targetRows[t];
+      for (var m = 0; m < mappedKeys.length; m++) {
+        var srcName = mappedKeys[m];
+        var dstName = COLUMN_MAP[srcName];
+        var srcVal  = appealRow[appealCol[srcName]];
+        var dstCol1 = col[dstName] + 1;
+        var currentVal = values[targetRow - 1][col[dstName]];
+        if (!valuesEqual(currentVal, srcVal)) {
+          if (!updatesByCol[dstCol1]) updatesByCol[dstCol1] = [];
+          updatesByCol[dstCol1].push({ row: targetRow, value: srcVal });
+          didWriteAny = true;
+        }
       }
     }
-    if (changed) updatedCount++;
+    if (didWriteAny) updatedCount++;
   }
 
-  // Terapkan update
-  var totalCells = 0;
-  var colKeys = Object.keys(updatesByCol);
-  for (var c = 0; c < colKeys.length; c++) {
-    var col1 = Number(colKeys[c]);
-    var items = updatesByCol[col1];
+  var cellsWritten = 0;
+  for (var c in updatesByCol) {
+    var items = updatesByCol[c];
     for (var it = 0; it < items.length; it++) {
-      dashSheet.getRange(items[it].row, col1).setValue(items[it].value);
-      totalCells++;
+      sheet.getRange(items[it].row, Number(c)).setValue(items[it].value);
+      cellsWritten++;
     }
   }
 
-  Logger.log("Sync banding LCR selesai. AHASS terupdate: " + updatedCount
-    + " | Sel diubah: " + totalCells
-    + " | No. Rangka tidak ditemukan di data mentah: " + notFound.length);
-  if (notFound.length) {
-    Logger.log("Contoh No. Rangka tak ditemukan: " + notFound.slice(0, 10).join(", "));
-  }
+  return {
+    updatedCount: updatedCount,
+    cellsWritten: cellsWritten,
+    matched: matchedKeys.length,
+    matchedKeys: matchedKeys
+  };
 }
 
 function findHeaderRow(values, keyName) {
@@ -173,10 +209,14 @@ function valuesEqual(a, b) {
 }
 
 // ---- Installer trigger (jalankan sekali secara manual di Apps Script editor) ----
+
+// Time-based: jalankan setiap 5 menit. Aman untuk semua deployment
+// (bound maupun standalone).
 function createSyncAppealLCRTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var t = 0; t < triggers.length; t++) {
-    if (triggers[t].getHandlerFunction() === "syncAppealLCR") {
+    if (triggers[t].getHandlerFunction() === "syncAppealLCR"
+        && triggers[t].getEventType() === ScriptApp.EventType.CLOCK) {
       ScriptApp.deleteTrigger(triggers[t]);
     }
   }
@@ -187,9 +227,8 @@ function createSyncAppealLCRTrigger() {
   Logger.log("Trigger sync banding LCR (setiap 5 menit) berhasil dibuat.");
 }
 
-// Opsional: pasang onFormSubmit agar sync langsung berjalan setelah banding disubmit.
-// Jalankan sekali dari Apps Script editor. Script ini HARUS di-bound ke spreadsheet
-// Tinjau Ulang Video LCR (Responses), atau ubah openById -> forSpreadsheet(...).
+// onFormSubmit: sync langsung berjalan tepat setelah form banding disubmit.
+// Script ini HARUS di-bound ke spreadsheet Tinjau Ulang Video LCR (Responses).
 function createSyncAppealLCROnFormSubmit() {
   var appealSS = SpreadsheetApp.openById(APPEAL_SPREADSHEET_ID);
   var triggers = ScriptApp.getProjectTriggers();
