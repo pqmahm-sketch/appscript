@@ -29,6 +29,10 @@ var KEY_APPEAL       = "No. Rangka";
 var KEY_SOURCE       = "No. Rangka";
 var TIMESTAMP_APPEAL = "Timestamp";
 
+// Nama kolom audit di sheet sumber. Jika belum ada, akan dibuat otomatis
+// di kolom paling kanan. Diisi dengan timestamp entry banding yang diterapkan.
+var AUDIT_COLUMN_NAME = "Terakhir Diupdate Banding";
+
 function syncAppealLCR() {
   var appealSS = SpreadsheetApp.openById(APPEAL_SPREADSHEET_ID);
   var appealSheet = appealSS.getSheetByName(APPEAL_SHEET_NAME);
@@ -110,6 +114,19 @@ function syncOneSource(src, appealCol, latestByRangka) {
     }
   }
 
+  // Pastikan kolom audit ada; bikin di paling kanan kalau belum ada.
+  var auditColIdx0 = col[AUDIT_COLUMN_NAME];
+  if (auditColIdx0 === undefined) {
+    auditColIdx0 = values[headerIdx].length; // 0-based -> append di kanan
+    sheet.getRange(headerIdx + 1, auditColIdx0 + 1).setValue(AUDIT_COLUMN_NAME);
+    Logger.log("[" + src.label + "] Kolom audit '" + AUDIT_COLUMN_NAME + "' dibuat di kolom "
+      + columnLetter(auditColIdx0 + 1) + ".");
+    // Re-read values supaya lebar tiap row konsisten
+    values = sheet.getDataRange().getValues();
+    col = buildColumnIndex(values[headerIdx]);
+  }
+  var auditCol1 = auditColIdx0 + 1;
+
   // Kumpulkan SEMUA row (1-based) untuk setiap No. Rangka di sumber
   // (satu rangka bisa muncul >1x kalau ada penilaian ulang oleh PIC).
   var rowsByRangka = {};
@@ -129,7 +146,12 @@ function syncOneSource(src, appealCol, latestByRangka) {
     var targetRows = rowsByRangka[key];
     if (!targetRows || !targetRows.length) continue;
     matchedKeys.push(key);
-    var appealRow = latestByRangka[key].row;
+    var appealEntry = latestByRangka[key];
+    var appealRow = appealEntry.row;
+    var appealTsRaw = appealRow[appealCol[TIMESTAMP_APPEAL]];
+    var appealTsValue = (appealTsRaw instanceof Date)
+      ? appealTsRaw
+      : (appealTsRaw ? new Date(appealTsRaw) : "");
 
     // Kalau ada beberapa row untuk 1 rangka, timpa SEMUA supaya
     // query hilir tidak mengambil versi lama.
@@ -146,6 +168,17 @@ function syncOneSource(src, appealCol, latestByRangka) {
           if (!updatesByCol[dstCol1]) updatesByCol[dstCol1] = [];
           updatesByCol[dstCol1].push({ row: targetRow, value: srcVal });
           didWriteAny = true;
+        }
+      }
+      if (didWriteAny) {
+        // Tulis/refresh kolom audit hanya kalau row memang berubah, atau
+        // kalau timestamp banding lebih baru dari yang sudah tercatat.
+        var currentAudit = values[targetRow - 1][auditColIdx0];
+        var currentAuditMs = toMillis(currentAudit);
+        var newAuditMs = toMillis(appealTsValue);
+        if (!valuesEqual(currentAudit, appealTsValue) && newAuditMs >= currentAuditMs) {
+          if (!updatesByCol[auditCol1]) updatesByCol[auditCol1] = [];
+          updatesByCol[auditCol1].push({ row: targetRow, value: appealTsValue });
         }
       }
     }
@@ -206,6 +239,17 @@ function valuesEqual(a, b) {
   var sa = (a === null || a === undefined) ? "" : String(a).trim();
   var sb = (b === null || b === undefined) ? "" : String(b).trim();
   return sa === sb;
+}
+
+function columnLetter(col1) {
+  var s = "";
+  var n = col1;
+  while (n > 0) {
+    var r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
 
 // ---- Installer trigger (jalankan sekali secara manual di Apps Script editor) ----
