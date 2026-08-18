@@ -4,29 +4,21 @@
  * Skrip untuk memproses spreadsheet "Database Pengerjaan PUD - Copy":
  *   1. Menyaring baris pada kolom A (Nama PUD) hanya untuk PUD yang di-allow.
  *   2. Menghapus kolom G-I dan M-O (jika ada).
- *   3. Membuat sheet baru untuk setiap kategori unik di kolom CATEGORY_COL
- *      dan mengisinya dengan baris yang cocok.
+ *   3. Membuat sheet baru untuk setiap kategori unik di kolom B
+ *      ("Kode MD Unit Distribusi") dan mengisinya dengan baris yang cocok.
  *   4. Mem-protect seluruh sheet supaya tidak bisa diubah orang lain.
  *
  * Cara pakai:
  *   - Buka spreadsheet copy: Extensions > Apps Script.
  *   - Paste seluruh file ini ke editor, save.
  *   - Jalankan fungsi runAll() satu kali (beri izin saat diminta).
- *
- * CATATAN PENTING soal "29 kategori di kolom C":
- *   Pada file sumber, kolom C = "No Rangka" yang berisi 3245 nilai unik,
- *   jadi tidak mungkin menghasilkan 29 sheet. Kolom yang jumlah kategorinya
- *   paling dekat dengan 29 adalah kolom B "Kode MD Unit Distribusi" (31 unik)
- *   atau kolom F "Kode MD Pelapor" (31 unik). Jika Anda memang mau membuat
- *   sheet per Kode MD, ubah CATEGORY_COL di bawah menjadi "B" (atau "F").
- *   Default dibiarkan "C" mengikuti instruksi apa adanya.
  */
 
 // ====== KONFIGURASI ======
 const SOURCE_SHEET_NAME = null;   // null = pakai sheet pertama; isi nama jika perlu.
 const ALLOWED_PUDS_REGEX = /(CBR250|CUV1|CBR600|CRF1100|AT3|AT4|AT5|GL1800|CBR1000)/i;
 const COLS_TO_DELETE = ['G-I', 'M-O']; // range huruf kolom yang akan dihapus.
-const CATEGORY_COL = 'C';         // kolom sumber kategori (setelah penghapusan).
+const CATEGORY_COL = 'B';         // kolom sumber kategori (setelah penghapusan).
 const MAX_SHEETS_HARDLIMIT = 60;  // pengaman: batalkan jika akan bikin > N sheet.
 const PROTECT_SHEETS = true;      // set false kalau tidak ingin proteksi.
 
@@ -109,8 +101,7 @@ function createCategorySheets_(ss, src, catColLetter) {
   if (cats.length > MAX_SHEETS_HARDLIMIT) {
     throw new Error(
       `Akan membuat ${cats.length} sheet — melebihi MAX_SHEETS_HARDLIMIT (${MAX_SHEETS_HARDLIMIT}). ` +
-      `Cek CATEGORY_COL — mungkin salah kolom. Kolom C = "No Rangka" (3245 unik), ` +
-      `pertimbangkan kolom B "Kode MD Unit Distribusi" (31 unik).`
+      `Cek CATEGORY_COL — mungkin salah kolom.`
     );
   }
 
