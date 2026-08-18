@@ -3,10 +3,12 @@
  *
  * Skrip untuk memproses spreadsheet "Database Pengerjaan PUD - Copy":
  *   1. Menyaring baris pada kolom A (Nama PUD) hanya untuk PUD yang di-allow.
- *   2. Menghapus kolom G-I dan M-O (jika ada).
- *   3. Membuat sheet baru untuk setiap kategori unik di kolom B
- *      ("Kode MD Unit Distribusi") dan mengisinya dengan baris yang cocok.
- *   4. Mem-protect seluruh sheet supaya tidak bisa diubah orang lain.
+ *   2. Menghapus kolom G-I.
+ *   3. Menghapus kolom M-O (di-skip aman jika tidak ada).
+ *      Kolom J-L tidak dihapus (dipertahankan).
+ *   4. Membuat sheet baru untuk setiap kategori unik di kolom C
+ *      dan mengisinya dengan baris yang cocok.
+ *   5. Mem-protect seluruh sheet supaya tidak bisa diubah orang lain.
  *
  * Cara pakai:
  *   - Buka spreadsheet copy: Extensions > Apps Script.
@@ -17,8 +19,8 @@
 // ====== KONFIGURASI ======
 const SOURCE_SHEET_NAME = null;   // null = pakai sheet pertama; isi nama jika perlu.
 const ALLOWED_PUDS_REGEX = /(CBR250|CUV1|CBR600|CRF1100|AT3|AT4|AT5|GL1800|CBR1000)/i;
-const COLS_TO_DELETE = ['G-I', 'M-O']; // range huruf kolom yang akan dihapus.
-const CATEGORY_COL = 'B';         // kolom sumber kategori (setelah penghapusan).
+const COLS_TO_DELETE = ['G-I', 'M-O']; // range huruf kolom yang akan dihapus (dieksekusi kanan ke kiri agar index tidak bergeser).
+const CATEGORY_COL = 'C';         // kolom sumber kategori (dihitung SETELAH penghapusan kolom).
 const MAX_SHEETS_HARDLIMIT = 60;  // pengaman: batalkan jika akan bikin > N sheet.
 const PROTECT_SHEETS = true;      // set false kalau tidak ingin proteksi.
 
@@ -44,7 +46,7 @@ function runAll() {
   );
 }
 
-// --- Langkah 2: filter PUD ---
+// --- Langkah 1: filter PUD di kolom A ---
 function filterAllowedPuds_(sheet) {
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
@@ -62,7 +64,7 @@ function filterAllowedPuds_(sheet) {
   }
 }
 
-// --- Langkah 3: hapus kolom G-I dan M-O ---
+// --- Langkah 2-3: hapus kolom G-I dan M-O (M-O di-skip jika tidak ada) ---
 function deleteColumns_(sheet, ranges) {
   // Kumpulkan indeks kolom (1-based) yang akan dihapus.
   const toDelete = new Set();
@@ -73,11 +75,13 @@ function deleteColumns_(sheet, ranges) {
     for (let c = start; c <= end; c++) toDelete.add(c);
   });
   const lastCol = sheet.getLastColumn();
+  // Filter hanya kolom yang benar-benar ada, lalu urutkan descending
+  // supaya index kolom di kirinya tidak bergeser saat kita deleteColumn.
   const sorted = [...toDelete].filter(c => c <= lastCol).sort((x, y) => y - x);
   sorted.forEach(c => sheet.deleteColumn(c));
 }
 
-// --- Langkah 4-5: bikin sheet per kategori + isi datanya ---
+// --- Langkah 4: bikin sheet per kategori + isi datanya ---
 function createCategorySheets_(ss, src, catColLetter) {
   const catIdx = colLetterToNum_(catColLetter) - 1;
   const lastRow = src.getLastRow();
@@ -100,8 +104,9 @@ function createCategorySheets_(ss, src, catColLetter) {
 
   if (cats.length > MAX_SHEETS_HARDLIMIT) {
     throw new Error(
-      `Akan membuat ${cats.length} sheet — melebihi MAX_SHEETS_HARDLIMIT (${MAX_SHEETS_HARDLIMIT}). ` +
-      `Cek CATEGORY_COL — mungkin salah kolom.`
+      `Akan membuat ${cats.length} sheet dari kolom ${catColLetter} ("${header[catIdx]}") — ` +
+      `melebihi MAX_SHEETS_HARDLIMIT (${MAX_SHEETS_HARDLIMIT}). ` +
+      `Ubah CATEGORY_COL ke kolom lain, atau naikkan MAX_SHEETS_HARDLIMIT.`
     );
   }
 
@@ -120,7 +125,7 @@ function createCategorySheets_(ss, src, catColLetter) {
   return cats;
 }
 
-// --- Langkah 6: proteksi semua sheet ---
+// --- Langkah 5: proteksi semua sheet ---
 function protectAllSheets_(ss) {
   const me = Session.getEffectiveUser();
   ss.getSheets().forEach(sh => {
