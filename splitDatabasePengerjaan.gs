@@ -119,6 +119,23 @@ function protectAllSheets_(ss) {
   });
 }
 
+/**
+ * Buka kunci (unlock) semua sheet: hapus proteksi sheet & range.
+ * Jalankan manual dari editor Apps Script kalau mau semua sheet bisa
+ * diedit lagi.
+ */
+function unlockAllSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let removed = 0;
+  ss.getSheets().forEach(sh => {
+    sh.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+      .forEach(p => { p.remove(); removed++; });
+    sh.getProtections(SpreadsheetApp.ProtectionType.RANGE)
+      .forEach(p => { p.remove(); removed++; });
+  });
+  ss.toast(`Selesai. ${removed} proteksi dihapus.`, 'unlockAllSheets', 10);
+}
+
 // ====== BACKUP BULANAN ======
 
 /**
