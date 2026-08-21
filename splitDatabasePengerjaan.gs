@@ -27,7 +27,7 @@
  */
 
 // ====== KONFIGURASI ======
-const SOURCE_SHEET_NAME = null;           // null = pakai sheet pertama.
+const SOURCE_SHEET_NAME = 'PUD';          // sheet sumber. null = pakai sheet pertama.
 const CATEGORY_COL = 'B';                 // acuan kategori split.
 const PROTECT_SHEETS = true;
 const MAX_SHEETS_HARDLIMIT = 60;          // pengaman.
