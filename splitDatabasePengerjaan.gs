@@ -121,40 +121,72 @@ function protectAllSheets_(ss) {
 
 /**
  * Formatting per sheet kategori (semua sheet selain SOURCE_SHEET_NAME):
- *   - Kolom A-D  : background #ffe2ca (peach) + dikunci (range protection)
+ *   - Terapkan warna & lock HANYA pada area tabel (baris 1 s/d lastRow).
+ *   - Kolom A-D  : background #ffe2ca (peach) + dikunci
  *   - Kolom E-K  : background #b3d7ef (biru muda), bisa diedit
+ *   - Kolom L    : background #ffe2ca (peach) + dikunci
+ *   - Tambah border tipis di seluruh area tabel supaya terlihat rapi.
+ *   - Background di luar area tabel dibersihkan.
  * Aman dijalankan berulang: proteksi lama dihapus dulu.
  */
 function formatCategorySheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const srcName = SOURCE_SHEET_NAME || ss.getSheets()[0].getName();
   const me = Session.getEffectiveUser();
-  const AD_COLOR = '#ffe2ca';
-  const EK_COLOR = '#b3d7ef';
+  const PEACH = '#ffe2ca';
+  const BLUE = '#b3d7ef';
   let count = 0;
 
   ss.getSheets().forEach(sh => {
     if (sh.getName() === srcName) return;
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (lastRow < 1 || lastCol < 1) return;
 
-    sh.getRange('A:D').setBackground(AD_COLOR);
-    sh.getRange('E:K').setBackground(EK_COLOR);
+    // Bersihkan semua background dulu (menghapus sisa run sebelumnya
+    // yang mewarnai seluruh kolom di luar area tabel).
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).setBackground(null);
+
+    // A-D (peach) — hanya di area tabel.
+    const adEnd = Math.min(4, lastCol);
+    sh.getRange(1, 1, lastRow, adEnd).setBackground(PEACH);
+
+    // E-K (biru).
+    if (lastCol >= 5) {
+      const ekEnd = Math.min(11, lastCol);
+      sh.getRange(1, 5, lastRow, ekEnd - 5 + 1).setBackground(BLUE);
+    }
+
+    // L (peach).
+    if (lastCol >= 12) {
+      sh.getRange(1, 12, lastRow, 1).setBackground(PEACH);
+    }
+
+    // Border di seluruh area tabel supaya terlihat seperti tabel.
+    sh.getRange(1, 1, lastRow, lastCol)
+      .setBorder(true, true, true, true, true, true);
 
     // Hapus proteksi lama biar idempotent.
     sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => p.remove());
     sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(p => p.remove());
 
-    // Kunci hanya kolom A-D.
-    const prot = sh.getRange('A:D').protect()
-      .setDescription('A-D locked (splitDatabasePengerjaan)');
-    prot.removeEditors(prot.getEditors());
-    prot.addEditor(me);
-    if (prot.canDomainEdit()) prot.setDomainEdit(false);
-    prot.setWarningOnly(false);
+    // Lock A-D dan L (hanya baris tabel).
+    const lockRanges = [sh.getRange(1, 1, lastRow, adEnd)];
+    if (lastCol >= 12) lockRanges.push(sh.getRange(1, 12, lastRow, 1));
+
+    lockRanges.forEach(rng => {
+      const p = rng.protect()
+        .setDescription('locked (splitDatabasePengerjaan)');
+      p.removeEditors(p.getEditors());
+      p.addEditor(me);
+      if (p.canDomainEdit()) p.setDomainEdit(false);
+      p.setWarningOnly(false);
+    });
 
     count++;
   });
 
-  ss.toast(`Selesai. Formatting & lock A-D diterapkan ke ${count} sheet.`,
+  ss.toast(`Selesai. Formatting & lock diterapkan ke ${count} sheet.`,
     'formatCategorySheets', 10);
 }
 
