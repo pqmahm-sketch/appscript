@@ -120,6 +120,45 @@ function protectAllSheets_(ss) {
 }
 
 /**
+ * Formatting per sheet kategori (semua sheet selain SOURCE_SHEET_NAME):
+ *   - Kolom A-D  : background #ffe2ca (peach) + dikunci (range protection)
+ *   - Kolom E-K  : background #b3d7ef (biru muda), bisa diedit
+ * Aman dijalankan berulang: proteksi lama dihapus dulu.
+ */
+function formatCategorySheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const srcName = SOURCE_SHEET_NAME || ss.getSheets()[0].getName();
+  const me = Session.getEffectiveUser();
+  const AD_COLOR = '#ffe2ca';
+  const EK_COLOR = '#b3d7ef';
+  let count = 0;
+
+  ss.getSheets().forEach(sh => {
+    if (sh.getName() === srcName) return;
+
+    sh.getRange('A:D').setBackground(AD_COLOR);
+    sh.getRange('E:K').setBackground(EK_COLOR);
+
+    // Hapus proteksi lama biar idempotent.
+    sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => p.remove());
+    sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(p => p.remove());
+
+    // Kunci hanya kolom A-D.
+    const prot = sh.getRange('A:D').protect()
+      .setDescription('A-D locked (splitDatabasePengerjaan)');
+    prot.removeEditors(prot.getEditors());
+    prot.addEditor(me);
+    if (prot.canDomainEdit()) prot.setDomainEdit(false);
+    prot.setWarningOnly(false);
+
+    count++;
+  });
+
+  ss.toast(`Selesai. Formatting & lock A-D diterapkan ke ${count} sheet.`,
+    'formatCategorySheets', 10);
+}
+
+/**
  * Buka kunci (unlock) semua sheet: hapus proteksi sheet & range.
  * Jalankan manual dari editor Apps Script kalau mau semua sheet bisa
  * diedit lagi.
