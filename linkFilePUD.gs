@@ -15,8 +15,16 @@
 //   5. Transfer balik PUD → breakdown sheets
 // ============================================================
 
-var FU_PUD_SPREADSHEET_ID        = 'ISI_ID_DATABASE_FU_PUD';
-var PENGERJAAN_PUD_SPREADSHEET_ID = 'ISI_ID_DATABASE_PENGERJAAN_PUD';
+// ID spreadsheet dibaca dari Script Properties supaya tidak perlu edit
+// source code. Kalau kosong:
+//   • FU PUD → jatuh ke spreadsheet aktif (container-bound script)
+//   • Pengerjaan PUD → error dengan pesan yang jelas
+//
+// Set sekali lewat menu Apps Script: pilih function `setSpreadsheetIds`
+// (isi dulu variabel di bawah), atau jalankan `setPengerjaanPudId('...')`
+// dan `setFuPudId('...')` dari editor.
+var FU_PUD_PROP_KEY         = 'FU_PUD_SPREADSHEET_ID';
+var PENGERJAAN_PUD_PROP_KEY = 'PENGERJAAN_PUD_SPREADSHEET_ID';
 
 var MASTER_SHEET_NAME       = 'PUD';   // di Database FU PUD
 var PENGERJAAN_SHEET_NAME   = 'PUD';   // di Database Pengerjaan PUD
@@ -184,7 +192,7 @@ function updateStatusAkhirWithPengerjaan() {
 }
 
 function buildPengerjaanMap_() {
-  var ss = SpreadsheetApp.openById(PENGERJAAN_PUD_SPREADSHEET_ID);
+  var ss = openPengerjaanPud_();
   var sh = ss.getSheetByName(PENGERJAAN_SHEET_NAME);
   if (!sh) throw new Error('Sheet ' + PENGERJAAN_SHEET_NAME + ' tidak ditemukan di Database Pengerjaan PUD');
   var lastRow = sh.getLastRow();
@@ -279,7 +287,7 @@ function flushPendingBreakdownEdits() {
 
 // Full sync semua breakdown → PUD (dipakai runFullPipeline)
 function syncPUDFromBreakdowns() {
-  var ss = SpreadsheetApp.openById(FU_PUD_SPREADSHEET_ID);
+  var ss = openFuPud_();
   var master = ss.getSheetByName(MASTER_SHEET_NAME);
   var masterIndex = buildMasterIndex_(master);
 
@@ -302,7 +310,7 @@ function syncPUDFromBreakdowns() {
 // STEP 5 — Transfer balik PUD → breakdown sheets
 // ============================================================
 function syncBreakdownsFromPUD() {
-  var ss = SpreadsheetApp.openById(FU_PUD_SPREADSHEET_ID);
+  var ss = openFuPud_();
   var master = ss.getSheetByName(MASTER_SHEET_NAME);
   var lastRow = master.getLastRow();
   if (lastRow <= HEADER_ROW) return;
@@ -340,8 +348,29 @@ function syncBreakdownsFromPUD() {
 // Helpers
 // ============================================================
 function getFuPudSheet_(name) {
-  var ss = SpreadsheetApp.openById(FU_PUD_SPREADSHEET_ID);
+  var ss = openFuPud_();
   return ss.getSheetByName(name);
+}
+
+function openFuPud_() {
+  var id = PropertiesService.getScriptProperties().getProperty(FU_PUD_PROP_KEY);
+  if (id) return SpreadsheetApp.openById(id);
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  throw new Error(
+    'FU PUD spreadsheet ID belum di-set. Jalankan setFuPudId("<id>") sekali dari editor Apps Script.'
+  );
+}
+
+function openPengerjaanPud_() {
+  var id = PropertiesService.getScriptProperties().getProperty(PENGERJAAN_PUD_PROP_KEY);
+  if (!id) {
+    throw new Error(
+      'Pengerjaan PUD spreadsheet ID belum di-set. Jalankan ' +
+      'setPengerjaanPudId("<id>") sekali dari editor Apps Script.'
+    );
+  }
+  return SpreadsheetApp.openById(id);
 }
 
 function isBreakdownSheet_(sheet) {
@@ -349,7 +378,7 @@ function isBreakdownSheet_(sheet) {
   if (name === MASTER_SHEET_NAME) return false;
   if (name.charAt(0) === '_') return false; // sheet sistem/hidden util
   // Anggap semua sheet lain di spreadsheet ini adalah breakdown per kode MD
-  return sheet.getParent().getId() === FU_PUD_SPREADSHEET_ID;
+  return sheet.getParent().getId() === openFuPud_().getId();
 }
 
 function buildMasterIndex_(master) {
@@ -416,12 +445,33 @@ function writePending_(obj) {
 // Trigger installers — jalankan sekali dari editor Apps Script
 // ============================================================
 function createBreakdownEditTrigger() {
-  var ss = SpreadsheetApp.openById(FU_PUD_SPREADSHEET_ID);
+  var ss = openFuPud_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'onEditFuPud') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onEditFuPud').forSpreadsheet(ss).onEdit().create();
   Logger.log('Installable onEdit trigger dipasang.');
+}
+
+// ============================================================
+// Setter ID spreadsheet (jalankan sekali dari editor Apps Script)
+// ============================================================
+function setFuPudId(id) {
+  if (!id) throw new Error('ID tidak boleh kosong');
+  PropertiesService.getScriptProperties().setProperty(FU_PUD_PROP_KEY, String(id).trim());
+  Logger.log('FU PUD spreadsheet ID di-set.');
+}
+
+function setPengerjaanPudId(id) {
+  if (!id) throw new Error('ID tidak boleh kosong');
+  PropertiesService.getScriptProperties().setProperty(PENGERJAAN_PUD_PROP_KEY, String(id).trim());
+  Logger.log('Pengerjaan PUD spreadsheet ID di-set.');
+}
+
+function showConfiguredIds() {
+  var p = PropertiesService.getScriptProperties();
+  Logger.log('FU PUD ID       : ' + (p.getProperty(FU_PUD_PROP_KEY) || '(kosong → pakai active spreadsheet)'));
+  Logger.log('Pengerjaan PUD ID: ' + (p.getProperty(PENGERJAAN_PUD_PROP_KEY) || '(BELUM DI-SET)'));
 }
 
 function createFlushTrigger() {
