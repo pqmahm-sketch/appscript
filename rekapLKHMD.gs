@@ -14,7 +14,8 @@
  */
 
 var LKHMD_SOURCE_ID = "1Z58B52MILTlzs4N2_UeG5Yf6BTmizzPmOcIXG6fh25I";
-var LKHMD_START_DATE = new Date(2026, 6, 10); // 10 Juli 2026
+var LKHMD_START_DATE = new Date(2026, 6, 10);
+var LKHMD_TIME_LIMIT = 5 * 60 * 1000; // 5 menit, sisakan 1 menit sebelum batas 6 menit
 
 var LKHMD_COL = {
   TIMESTAMP: 1,
@@ -24,6 +25,10 @@ var LKHMD_COL = {
 };
 
 function rekapLKHMD() {
+  var startTime = new Date().getTime();
+  var props = PropertiesService.getScriptProperties();
+  var lastProcessed = Number(props.getProperty("LKHMD_LAST_INDEX") || 0);
+
   var sourceSS = SpreadsheetApp.openById(LKHMD_SOURCE_ID);
   var sourceSheet = sourceSS.getSheetByName("Form Responses 1");
   if (!sourceSheet) {
@@ -50,8 +55,17 @@ function rekapLKHMD() {
   }
 
   var newRows = [];
+  var timedOut = false;
+  var processedUntil = data.length;
 
-  for (var i = 0; i < data.length; i++) {
+  for (var i = lastProcessed; i < data.length; i++) {
+    if (new Date().getTime() - startTime > LKHMD_TIME_LIMIT) {
+      timedOut = true;
+      processedUntil = i;
+      Logger.log("Batas waktu hampir tercapai, berhenti di baris " + (i + 2) + ". Akan lanjut otomatis.");
+      break;
+    }
+
     var timestamp = new Date(data[i][LKHMD_COL.TIMESTAMP - 1]);
     if (isNaN(timestamp.getTime()) || timestamp < LKHMD_START_DATE) continue;
 
@@ -81,8 +95,34 @@ function rekapLKHMD() {
     var startRow = rekapSheet.getLastRow() + 1;
     rekapSheet.getRange(startRow, 1, newRows.length, 8).setValues(newRows);
     Logger.log(newRows.length + " baris baru ditambahkan ke rekap.");
+  }
+
+  if (timedOut) {
+    props.setProperty("LKHMD_LAST_INDEX", String(processedUntil));
+    scheduleResumeLKHMD();
   } else {
-    Logger.log("Tidak ada data baru untuk direkap.");
+    props.deleteProperty("LKHMD_LAST_INDEX");
+    clearResumeTriggerLKHMD();
+    Logger.log("Rekap selesai. Total data: " + data.length + " baris.");
+  }
+}
+
+function scheduleResumeLKHMD() {
+  clearResumeTriggerLKHMD();
+  ScriptApp.newTrigger("rekapLKHMD")
+    .timeBased()
+    .after(30 * 1000)
+    .create();
+  Logger.log("Trigger resume dijadwalkan 30 detik lagi.");
+}
+
+function clearResumeTriggerLKHMD() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var t = 0; t < triggers.length; t++) {
+    var trigger = triggers[t];
+    if (trigger.getHandlerFunction() === "rekapLKHMD" && trigger.getEventType() === ScriptApp.EventType.CLOCK) {
+      ScriptApp.deleteTrigger(trigger);
+    }
   }
 }
 
@@ -126,11 +166,14 @@ function extractExcelDataLKHMD(link) {
     var ss = SpreadsheetApp.openById(ssId);
     var sheet = ss.getSheetByName("LKH MD") || ss.getSheets()[0];
 
-    result.tipeMotor = String(sheet.getRange("G7").getValue()).trim();
-    result.noRangka = String(sheet.getRange("G8").getValue()).trim();
-    result.noMesin = String(sheet.getRange("G9").getValue()).trim();
-    result.noAhass = String(sheet.getRange("Z7").getValue()).trim();
-    result.namaAhass = String(sheet.getRange("Z8").getValue()).trim();
+    var gRange = sheet.getRange("G7:G9").getValues();
+    result.tipeMotor = String(gRange[0][0]).trim();
+    result.noRangka = String(gRange[1][0]).trim();
+    result.noMesin = String(gRange[2][0]).trim();
+
+    var zRange = sheet.getRange("Z7:Z8").getValues();
+    result.noAhass = String(zRange[0][0]).trim();
+    result.namaAhass = String(zRange[1][0]).trim();
   } catch (e) {
     Logger.log("Error baca file " + link + ": " + e.message);
   } finally {
@@ -201,6 +244,7 @@ function setupRekapLKHMD() {
     .onFormSubmit()
     .create();
 
+  PropertiesService.getScriptProperties().deleteProperty("LKHMD_LAST_INDEX");
   rekapLKHMD();
 
   var props = PropertiesService.getScriptProperties();
@@ -212,86 +256,4 @@ function setupRekapLKHMD() {
 
 function onFormSubmitLKHMD(e) {
   rekapLKHMD();
-}
-
-/**
- * Jalankan fungsi ini untuk debug 1 file Excel lampiran.
- * Cek Execution Log untuk hasilnya.
- * Salin salah satu link dari kolom Lampiran ke variabel testLink di bawah.
- */
-function debugExcelFileLKHMD() {
-  var testLink = "PASTE_LINK_LAMPIRAN_DISINI";
-
-  var fileId = extractDriveFileId(testLink);
-  if (!fileId) {
-    Logger.log("Gagal extract file ID dari link");
-    return;
-  }
-
-  var file = DriveApp.getFileById(fileId);
-  Logger.log("=== FILE INFO ===");
-  Logger.log("Nama: " + file.getName());
-  Logger.log("MIME type: " + file.getMimeType());
-
-  var tempFileId = null;
-  var ssId;
-
-  if (file.getMimeType() === "application/vnd.google-apps.spreadsheet") {
-    ssId = fileId;
-  } else {
-    var blob = file.getBlob();
-    var tempFile = Drive.Files.insert(
-      { title: "debug_lkhmd", mimeType: "application/vnd.google-apps.spreadsheet" },
-      blob,
-      { convert: true }
-    );
-    tempFileId = tempFile.id;
-    ssId = tempFileId;
-  }
-
-  var ss = SpreadsheetApp.openById(ssId);
-  var sheets = ss.getSheets();
-  Logger.log("\n=== JUMLAH SHEET: " + sheets.length + " ===");
-
-  for (var s = 0; s < sheets.length; s++) {
-    var sheet = sheets[s];
-    var name = sheet.getName();
-    var lastR = sheet.getLastRow();
-    var lastC = sheet.getLastColumn();
-    Logger.log("\n--- Sheet " + (s + 1) + ": '" + name + "' (baris: " + lastR + ", kolom: " + lastC + ") ---");
-
-    Logger.log("G7 = [" + sheet.getRange("G7").getValue() + "]");
-    Logger.log("G8 = [" + sheet.getRange("G8").getValue() + "]");
-    Logger.log("G9 = [" + sheet.getRange("G9").getValue() + "]");
-    Logger.log("Z7 = [" + sheet.getRange("Z7").getValue() + "]");
-    Logger.log("Z8 = [" + sheet.getRange("Z8").getValue() + "]");
-
-    if (lastR > 0 && lastC > 0) {
-      var previewRows = Math.min(lastR, 15);
-      var previewCols = Math.min(lastC, 30);
-      var preview = sheet.getRange(1, 1, previewRows, previewCols).getValues();
-      for (var r = 0; r < preview.length; r++) {
-        var rowStr = "Baris " + (r + 1) + ": ";
-        for (var c = 0; c < preview[r].length; c++) {
-          var val = String(preview[r][c]).trim();
-          if (val) {
-            var colLetter = "";
-            var colNum = c + 1;
-            while (colNum > 0) {
-              colLetter = String.fromCharCode(((colNum - 1) % 26) + 65) + colLetter;
-              colNum = Math.floor((colNum - 1) / 26);
-            }
-            rowStr += colLetter + "=[" + val.substring(0, 30) + "] ";
-          }
-        }
-        Logger.log(rowStr);
-      }
-    }
-  }
-
-  if (tempFileId) {
-    DriveApp.getFileById(tempFileId).setTrashed(true);
-  }
-
-  Logger.log("\n=== DEBUG SELESAI ===");
 }
