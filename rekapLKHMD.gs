@@ -3,8 +3,7 @@
  *
  * SETUP:
  * 1. Ganti LKHMD_SOURCE_ID dengan ID spreadsheet form responses LKH MD
- * 2. Di Apps Script editor: Services (+) > Drive API > Add
- * 3. Jalankan setupRekapLKHMD() sekali untuk membuat spreadsheet rekap & trigger
+ * 2. Jalankan setupRekapLKHMD() sekali untuk membuat spreadsheet rekap & trigger
  *
  * Kolom source (Form Responses 1):
  *   A: Timestamp, B: Main Dealer, C: Nama Penanggung Jawab,
@@ -113,13 +112,21 @@ function extractExcelDataLKHMD(link) {
     if (mimeType === "application/vnd.google-apps.spreadsheet") {
       ssId = fileId;
     } else {
-      var blob = file.getBlob();
-      var tempFile = Drive.Files.insert(
-        { title: "temp_lkhmd_" + fileId, mimeType: "application/vnd.google-apps.spreadsheet" },
-        blob,
-        { convert: true }
+      var token = ScriptApp.getOAuthToken();
+      var copyRes = UrlFetchApp.fetch(
+        "https://www.googleapis.com/drive/v3/files/" + fileId + "/copy",
+        {
+          method: "post",
+          contentType: "application/json",
+          headers: { Authorization: "Bearer " + token },
+          payload: JSON.stringify({
+            name: "temp_lkhmd_" + fileId,
+            mimeType: "application/vnd.google-apps.spreadsheet"
+          })
+        }
       );
-      tempFileId = tempFile.id;
+      var copyData = JSON.parse(copyRes.getContentText());
+      tempFileId = copyData.id;
       ssId = tempFileId;
     }
 
