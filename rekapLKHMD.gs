@@ -213,3 +213,85 @@ function setupRekapLKHMD() {
 function onFormSubmitLKHMD(e) {
   rekapLKHMD();
 }
+
+/**
+ * Jalankan fungsi ini untuk debug 1 file Excel lampiran.
+ * Cek Execution Log untuk hasilnya.
+ * Salin salah satu link dari kolom Lampiran ke variabel testLink di bawah.
+ */
+function debugExcelFileLKHMD() {
+  var testLink = "PASTE_LINK_LAMPIRAN_DISINI";
+
+  var fileId = extractDriveFileId(testLink);
+  if (!fileId) {
+    Logger.log("Gagal extract file ID dari link");
+    return;
+  }
+
+  var file = DriveApp.getFileById(fileId);
+  Logger.log("=== FILE INFO ===");
+  Logger.log("Nama: " + file.getName());
+  Logger.log("MIME type: " + file.getMimeType());
+
+  var tempFileId = null;
+  var ssId;
+
+  if (file.getMimeType() === "application/vnd.google-apps.spreadsheet") {
+    ssId = fileId;
+  } else {
+    var blob = file.getBlob();
+    var tempFile = Drive.Files.insert(
+      { title: "debug_lkhmd", mimeType: "application/vnd.google-apps.spreadsheet" },
+      blob,
+      { convert: true }
+    );
+    tempFileId = tempFile.id;
+    ssId = tempFileId;
+  }
+
+  var ss = SpreadsheetApp.openById(ssId);
+  var sheets = ss.getSheets();
+  Logger.log("\n=== JUMLAH SHEET: " + sheets.length + " ===");
+
+  for (var s = 0; s < sheets.length; s++) {
+    var sheet = sheets[s];
+    var name = sheet.getName();
+    var lastR = sheet.getLastRow();
+    var lastC = sheet.getLastColumn();
+    Logger.log("\n--- Sheet " + (s + 1) + ": '" + name + "' (baris: " + lastR + ", kolom: " + lastC + ") ---");
+
+    Logger.log("G7 = [" + sheet.getRange("G7").getValue() + "]");
+    Logger.log("G8 = [" + sheet.getRange("G8").getValue() + "]");
+    Logger.log("G9 = [" + sheet.getRange("G9").getValue() + "]");
+    Logger.log("Z7 = [" + sheet.getRange("Z7").getValue() + "]");
+    Logger.log("Z8 = [" + sheet.getRange("Z8").getValue() + "]");
+
+    if (lastR > 0 && lastC > 0) {
+      var previewRows = Math.min(lastR, 15);
+      var previewCols = Math.min(lastC, 30);
+      var preview = sheet.getRange(1, 1, previewRows, previewCols).getValues();
+      for (var r = 0; r < preview.length; r++) {
+        var rowStr = "Baris " + (r + 1) + ": ";
+        for (var c = 0; c < preview[r].length; c++) {
+          var val = String(preview[r][c]).trim();
+          if (val) {
+            var colLetter = "";
+            var colNum = c + 1;
+            while (colNum > 0) {
+              colLetter = String.fromCharCode(((colNum - 1) % 26) + 65) + colLetter;
+              colNum = Math.floor((colNum - 1) / 26);
+            }
+            rowStr += colLetter + "=[" + val.substring(0, 30) + "] ";
+          }
+        }
+        Logger.log(rowStr);
+      }
+    }
+  }
+
+  if (tempFileId) {
+    DriveApp.getFileById(tempFileId).setTrashed(true);
+  }
+
+  Logger.log("\n=== DEBUG SELESAI ===");
+}
