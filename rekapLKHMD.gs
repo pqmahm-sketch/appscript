@@ -3,7 +3,8 @@
  *
  * SETUP:
  * 1. Ganti LKHMD_SOURCE_ID dengan ID spreadsheet form responses LKH MD
- * 2. Jalankan setupRekapLKHMD() sekali untuk membuat spreadsheet rekap & trigger
+ * 2. Di Apps Script editor: Services (+) > Drive API > Add
+ * 3. Jalankan setupRekapLKHMD() sekali untuk membuat spreadsheet rekap & trigger
  *
  * Kolom source (Form Responses 1):
  *   A: Timestamp, B: Main Dealer, C: Nama Penanggung Jawab,
@@ -12,7 +13,7 @@
  *   → Sesuaikan LKHMD_COL jika urutan kolom berbeda
  */
 
-var LKHMD_SOURCE_ID = "GANTI_DENGAN_ID_SPREADSHEET_FORM";
+var LKHMD_SOURCE_ID = "1Z58B52MILTlzs4N2_UeG5Yf6BTmizzPmOcIXG6fh25I";
 var LKHMD_START_DATE = new Date(2026, 6, 10); // 10 Juli 2026
 
 var LKHMD_COL = {
@@ -112,21 +113,13 @@ function extractExcelDataLKHMD(link) {
     if (mimeType === "application/vnd.google-apps.spreadsheet") {
       ssId = fileId;
     } else {
-      var token = ScriptApp.getOAuthToken();
-      var copyRes = UrlFetchApp.fetch(
-        "https://www.googleapis.com/drive/v3/files/" + fileId + "/copy",
-        {
-          method: "post",
-          contentType: "application/json",
-          headers: { Authorization: "Bearer " + token },
-          payload: JSON.stringify({
-            name: "temp_lkhmd_" + fileId,
-            mimeType: "application/vnd.google-apps.spreadsheet"
-          })
-        }
+      var blob = file.getBlob();
+      var tempFile = Drive.Files.insert(
+        { title: "temp_lkhmd_" + fileId, mimeType: "application/vnd.google-apps.spreadsheet" },
+        blob,
+        { convert: true }
       );
-      var copyData = JSON.parse(copyRes.getContentText());
-      tempFileId = copyData.id;
+      tempFileId = tempFile.id;
       ssId = tempFileId;
     }
 
