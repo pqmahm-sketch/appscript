@@ -124,7 +124,7 @@ function extractExcelDataLKHMD(link) {
     }
 
     var ss = SpreadsheetApp.openById(ssId);
-    var sheet = ss.getSheets()[0];
+    var sheet = ss.getSheetByName("LKH MD") || ss.getSheets()[0];
 
     result.tipeMotor = String(sheet.getRange("G7").getValue()).trim();
     result.noRangka = String(sheet.getRange("G8").getValue()).trim();
