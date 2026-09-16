@@ -1,0 +1,217 @@
+/**
+ * crosscheckCollector.gs
+ * PROSES 1: Kumpulkan data & buat file "crosscheck point N".
+ *
+ * Jalankan: runCrosscheckCollector()   (manual)
+ * Trigger : dipasang otomatis oleh installTriggersCrosscheck() → tiap Kamis 09:00.
+ *
+ * Logika:
+ *   1. Buka spreadsheet sumber → sheet "Data Mentah".
+ *   2. Filter baris berdasarkan kolom Main Dealer (15 inisial).
+ *   3. Filter berdasarkan Status AHASS (OK/NG), ambil 2 baris per MD (prefer mix 1 OK + 1 NG).
+ *   4. Buang rangka+claim yang sudah muncul di file crosscheck sebelumnya.
+ *   5. Buat spreadsheet baru "crosscheck point N" di folder output.
+ */
+
+function runCrosscheckCollector() {
+  const cfg = CROSSCHECK_CONFIG;
+  const startTs = new Date();
+  Logger.log('=== runCrosscheckCollector START @ ' + startTs);
+
+  // --- Step 1: baca sheet sumber ---
+  const srcSs = SpreadsheetApp.openById(cfg.SOURCE_SPREADSHEET_ID);
+  const srcSheet = srcSs.getSheetByName(cfg.SOURCE_SHEET_NAME);
+  if (!srcSheet) throw new Error('Sheet "' + cfg.SOURCE_SHEET_NAME + '" tidak ditemukan pada sumber.');
+
+  const values = srcSheet.getDataRange().getValues();
+  if (values.length < 2) {
+    Logger.log('Data Mentah kosong / hanya header.');
+    return null;
+  }
+
+  const header = values[0].map(v => String(v || '').trim());
+  let idxMD     = findColumnIndex_(header, cfg.COL_MAIN_DEALER_HEADER);
+  let idxStatus = findColumnIndex_(header, cfg.COL_STATUS_AHASS_HEADER);
+  let idxRangka = findColumnIndex_(header, cfg.COL_NO_RANGKA_HEADER);
+  let idxClaim  = findColumnIndex_(header, cfg.COL_NO_CLAIM_HEADER);
+
+  // Fallback: MD wajib di kolom B (index 1) sesuai spesifikasi user
+  if (idxMD < 0) idxMD = 1;
+  if (idxRangka < 0) throw new Error('Header "No. Rangka" tidak ditemukan.');
+  if (idxClaim < 0)  throw new Error('Header "No. Claim" tidak ditemukan.');
+  if (idxStatus < 0) {
+    // Coba tebak dari header yang mengandung kata "status"
+    for (let i = 0; i < header.length; i++) {
+      if (/status/i.test(header[i])) { idxStatus = i; break; }
+    }
+    if (idxStatus < 0) throw new Error('Kolom Status AHASS tidak ditemukan.');
+  }
+
+  Logger.log('Header found. MD=' + idxMD + ', Status=' + idxStatus +
+             ', Rangka=' + idxRangka + ', Claim=' + idxClaim);
+
+  // --- Step 2 & 3: filter & bucket per MD ---
+  const mdSet = new Set(cfg.MAIN_DEALERS.map(x => String(x).trim().toUpperCase()));
+  const buckets = {}; // { MD: { OK: [rows], NG: [rows] } }
+  cfg.MAIN_DEALERS.forEach(md => { buckets[md.toUpperCase()] = { OK: [], NG: [] }; });
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const md = String(row[idxMD] || '').trim().toUpperCase();
+    if (!mdSet.has(md)) continue;
+
+    const status = String(row[idxStatus] || '').trim().toUpperCase();
+    if (status !== cfg.STATUS_OK && status !== cfg.STATUS_NG) continue;
+
+    const rangka = normUpper_(row[idxRangka]);
+    const claim  = normTrim_(row[idxClaim]);
+    if (!rangka || !claim) continue;
+
+    buckets[md][status].push({ rangka: rangka, claim: claim, rowIndex: r });
+  }
+
+  // --- Step 4: exclude rangka/claim yang sudah pernah muncul di crosscheck sebelumnya ---
+  const usedRangka = loadPreviousCrosscheckRangkas_();
+  Logger.log('Previous crosscheck rangka count: ' + usedRangka.size);
+
+  // --- Step 5: sampling 2 per MD, prefer 1 OK + 1 NG ---
+  const picked = [];
+  const seenThisRun = new Set();
+  cfg.MAIN_DEALERS.forEach(mdRaw => {
+    const md = mdRaw.toUpperCase();
+    const bucket = buckets[md] || { OK: [], NG: [] };
+    // Attach status label ke tiap item lalu filter yang belum dipakai
+    const okList = bucket.OK
+      .filter(x => !usedRangka.has(x.rangka) && !seenThisRun.has(x.rangka))
+      .map(x => Object.assign({ status: cfg.STATUS_OK }, x));
+    const ngList = bucket.NG
+      .filter(x => !usedRangka.has(x.rangka) && !seenThisRun.has(x.rangka))
+      .map(x => Object.assign({ status: cfg.STATUS_NG }, x));
+
+    shuffleInPlace_(okList);
+    shuffleInPlace_(ngList);
+
+    // Prefer 1 OK + 1 NG
+    const takeMd = [];
+    if (okList.length > 0) takeMd.push(okList.shift());
+    if (ngList.length > 0) takeMd.push(ngList.shift());
+
+    // Kalau salah satu belum tersedia, isi dengan sisa dari list yang ada
+    while (takeMd.length < cfg.ROWS_PER_MD) {
+      if (okList.length > 0)      takeMd.push(okList.shift());
+      else if (ngList.length > 0) takeMd.push(ngList.shift());
+      else break;
+    }
+
+    takeMd.forEach(item => {
+      seenThisRun.add(item.rangka);
+      picked.push({ md: md, status: item.status, rangka: item.rangka, claim: item.claim });
+    });
+  });
+
+  if (picked.length === 0) {
+    Logger.log('Tidak ada data baru yang bisa diambil. Skip pembuatan file.');
+    return null;
+  }
+
+  // --- Step 6: buat file crosscheck baru ---
+  const nextNumber = getNextCrosscheckNumber_();
+  const fileName = cfg.CROSSCHECK_FILE_PREFIX + nextNumber;
+
+  const newSs = SpreadsheetApp.create(fileName);
+  const newFile = DriveApp.getFileById(newSs.getId());
+
+  // Pindahkan ke folder output
+  const targetFolder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  newFile.moveTo(targetFolder);
+
+  // Tulis data
+  const sheet = newSs.getSheets()[0];
+  sheet.setName('Crosscheck List');
+  const out = [['No.', 'Main Dealer', 'Status AHASS', 'No. Rangka', 'No. Claim']];
+  picked.forEach((p, i) => out.push([i + 1, p.md, p.status, p.rangka, p.claim]));
+  sheet.getRange(1, 1, out.length, out[0].length).setValues(out);
+  sheet.getRange(1, 1, 1, out[0].length)
+       .setFontWeight('bold')
+       .setBackground('#1F4E78')
+       .setFontColor('#FFFFFF');
+  sheet.setColumnWidth(1, 50);
+  sheet.setColumnWidth(2, 100);
+  sheet.setColumnWidth(3, 120);
+  sheet.setColumnWidth(4, 200);
+  sheet.setColumnWidth(5, 260);
+  sheet.setFrozenRows(1);
+
+  Logger.log('File dibuat: ' + fileName + ' (rows=' + picked.length + ') → ' + newFile.getUrl());
+  Logger.log('=== runCrosscheckCollector DONE (elapsed ' + ((new Date() - startTs)/1000) + 's) ===');
+
+  return { fileId: newSs.getId(), fileName: fileName, count: picked.length, url: newFile.getUrl() };
+}
+
+/**
+ * Cari nomor urut berikutnya untuk file crosscheck point N.
+ * Scan folder output, ambil angka terbesar dari nama file yang cocok, +1.
+ * Jika belum ada file sama sekali → pakai CROSSCHECK_START_NUMBER.
+ */
+function getNextCrosscheckNumber_() {
+  const cfg = CROSSCHECK_CONFIG;
+  const folder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const it = folder.getFiles();
+  const prefixLower = cfg.CROSSCHECK_FILE_PREFIX.toLowerCase();
+  let maxN = cfg.CROSSCHECK_START_NUMBER - 1;
+  while (it.hasNext()) {
+    const f = it.next();
+    const name = String(f.getName() || '').trim();
+    const lower = name.toLowerCase();
+    if (lower.indexOf(prefixLower) !== 0) continue;
+    const rest = name.substring(cfg.CROSSCHECK_FILE_PREFIX.length).trim();
+    const m = rest.match(/^(\d+)/);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (!isNaN(n) && n > maxN) maxN = n;
+  }
+  return maxN + 1;
+}
+
+/**
+ * Baca semua file crosscheck point sebelumnya, kumpulkan set No. Rangka yang sudah dipakai.
+ */
+function loadPreviousCrosscheckRangkas_() {
+  const cfg = CROSSCHECK_CONFIG;
+  const set = new Set();
+  const folder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const it = folder.getFiles();
+  const prefixLower = cfg.CROSSCHECK_FILE_PREFIX.toLowerCase();
+  while (it.hasNext()) {
+    const f = it.next();
+    const name = String(f.getName() || '').trim().toLowerCase();
+    if (name.indexOf(prefixLower) !== 0) continue;
+    try {
+      const ss = SpreadsheetApp.openById(f.getId());
+      const sheet = ss.getSheets()[0];
+      const vals = sheet.getDataRange().getValues();
+      if (vals.length < 2) continue;
+      const header = vals[0].map(v => String(v || '').trim());
+      let idxR = findColumnIndex_(header, 'No. Rangka');
+      if (idxR < 0) idxR = 3; // fallback D
+      for (let i = 1; i < vals.length; i++) {
+        const r = normUpper_(vals[i][idxR]);
+        if (r) set.add(r);
+      }
+    } catch (e) {
+      Logger.log('Gagal baca ' + f.getName() + ': ' + e.message);
+    }
+  }
+  return set;
+}
+
+/**
+ * Fisher-Yates shuffle in-place.
+ */
+function shuffleInPlace_(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr;
+}
