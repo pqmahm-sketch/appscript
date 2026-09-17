@@ -15,6 +15,13 @@ const CROSSCHECK_CONFIG = {
   COL_NO_RANGKA_HEADER: 'No. Rangka',
   COL_NO_CLAIM_HEADER: 'No. Claim',
 
+  // Optional override: kalau header di sumber tidak konsisten, isi huruf kolom di sini
+  // (kosongkan '' untuk pakai auto-detect). Contoh: 'J'.
+  COL_MAIN_DEALER_LETTER: 'B',
+  COL_STATUS_AHASS_LETTER: 'J',
+  COL_NO_RANGKA_LETTER: 'C',
+  COL_NO_CLAIM_LETTER: '',   // isi kalau tahu; kosong = auto-detect
+
   // Daftar Main Dealer yang di-scope
   MAIN_DEALERS: [
     'B3Z', 'B10', 'C10', 'C3Z', 'D2Z', 'D3Z',
@@ -85,4 +92,20 @@ function normUpper_(v) {
 
 function normTrim_(v) {
   return String(v == null ? '' : v).trim();
+}
+
+/**
+ * Konversi huruf kolom (A, B, ..., Z, AA, ...) ke index 0-based.
+ * Return -1 jika input kosong atau tidak valid.
+ */
+function letterToIndex_(letter) {
+  const s = String(letter || '').trim().toUpperCase();
+  if (!s) return -1;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 65 || c > 90) return -1;
+    n = n * 26 + (c - 64);
+  }
+  return n - 1;
 }

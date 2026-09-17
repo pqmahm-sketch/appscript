@@ -53,30 +53,75 @@ function runCrosscheckCollector() {
   }
 
   const header = (values[headerRowIdx] || []).map(v => String(v || '').trim());
-  let idxMD     = findColumnIndex_(header, cfg.COL_MAIN_DEALER_HEADER);
-  let idxStatus = findColumnIndex_(header, cfg.COL_STATUS_AHASS_HEADER);
-  let idxRangka = findColumnIndex_(header, cfg.COL_NO_RANGKA_HEADER);
-  let idxClaim  = findColumnIndex_(header, cfg.COL_NO_CLAIM_HEADER);
 
-  // Fallback per kolom sesuai info user: MD=B (index 1), Rangka=C (index 2), Claim=J (index 9)
-  if (idxMD < 0) idxMD = 1;
-  if (idxRangka < 0) idxRangka = 2;
-  if (idxClaim  < 0) idxClaim  = 9;
-
-  if (idxStatus < 0) {
-    // Coba tebak dari header yang mengandung kata "status" (mis. "Status AHASS")
+  // Prioritas urutan resolve: (1) letter override di config, (2) header exact match,
+  // (3) variasi header, (4) fallback khusus, (5) scan data.
+  // Setiap kolom yang sudah "diambil" ditandai agar tidak dipakai kolom lain.
+  const taken = new Set();
+  function claim(idx) { if (idx >= 0) taken.add(idx); return idx; }
+  function firstFreeMatch(fn) {
     for (let i = 0; i < header.length; i++) {
-      if (/status/i.test(header[i])) { idxStatus = i; break; }
+      if (taken.has(i)) continue;
+      if (fn(header[i], i)) return i;
     }
-    // Kalau masih tidak ketemu, scan cell di baris data pertama untuk cari nilai "OK"/"NG"
-    if (idxStatus < 0) {
-      const firstData = values[headerRowIdx + 1] || [];
-      for (let c = 0; c < firstData.length; c++) {
-        const v = String(firstData[c] || '').trim().toUpperCase();
-        if (v === 'OK' || v === 'NG') { idxStatus = c; break; }
-      }
+    return -1;
+  }
+
+  // MD
+  let idxMD = letterToIndex_(cfg.COL_MAIN_DEALER_LETTER);
+  if (idxMD < 0) idxMD = findColumnIndex_(header, cfg.COL_MAIN_DEALER_HEADER);
+  if (idxMD < 0) idxMD = 1;
+  claim(idxMD);
+
+  // Rangka
+  let idxRangka = letterToIndex_(cfg.COL_NO_RANGKA_LETTER);
+  if (idxRangka < 0) idxRangka = findColumnIndex_(header, cfg.COL_NO_RANGKA_HEADER);
+  if (idxRangka < 0) idxRangka = firstFreeMatch(h => /rangka/i.test(h));
+  if (idxRangka < 0) idxRangka = 2;
+  claim(idxRangka);
+
+  // Status
+  let idxStatus = letterToIndex_(cfg.COL_STATUS_AHASS_LETTER);
+  if (idxStatus < 0) idxStatus = findColumnIndex_(header, cfg.COL_STATUS_AHASS_HEADER);
+  if (idxStatus < 0) idxStatus = firstFreeMatch(h => /^status\b/i.test(h) || /status\s*ahass/i.test(h));
+  if (idxStatus < 0) {
+    // Scan baris data pertama cari OK/NG di kolom yang belum di-claim
+    const firstData = values[headerRowIdx + 1] || [];
+    for (let c = 0; c < firstData.length; c++) {
+      if (taken.has(c)) continue;
+      const v = String(firstData[c] || '').trim().toUpperCase();
+      if (v === 'OK' || v === 'NG') { idxStatus = c; break; }
     }
-    if (idxStatus < 0) throw new Error('Kolom Status AHASS tidak ditemukan.');
+  }
+  if (idxStatus < 0) throw new Error('Kolom Status AHASS tidak ditemukan.');
+  claim(idxStatus);
+
+  // Claim
+  let idxClaim = letterToIndex_(cfg.COL_NO_CLAIM_LETTER);
+  if (idxClaim < 0) idxClaim = findColumnIndex_(header, cfg.COL_NO_CLAIM_HEADER);
+  if (idxClaim < 0) idxClaim = firstFreeMatch(h =>
+    /no\.?\s*claim/i.test(h) || /nomor\s*claim/i.test(h) || /^claim\b/i.test(h)
+  );
+  if (idxClaim < 0) {
+    // Scan baris data pertama cari sesuatu yang terlihat seperti nomor claim
+    // (string panjang, alfanumerik), pada kolom yang belum di-claim.
+    const firstData = values[headerRowIdx + 1] || [];
+    for (let c = 0; c < firstData.length; c++) {
+      if (taken.has(c)) continue;
+      const v = String(firstData[c] || '').trim();
+      if (v.length >= 6 && /[A-Za-z]/.test(v) && /\d/.test(v)) { idxClaim = c; break; }
+    }
+  }
+  if (idxClaim < 0) throw new Error('Kolom No. Claim tidak ditemukan. Isi COL_NO_CLAIM_LETTER di crosscheckConfig.gs.');
+  claim(idxClaim);
+
+  // Cek collision defensif
+  const picked_ = { MD: idxMD, Status: idxStatus, Rangka: idxRangka, Claim: idxClaim };
+  const seen_ = {};
+  for (const k in picked_) {
+    const v = picked_[k];
+    if (seen_[v]) throw new Error('Deteksi kolom collision: ' + k + ' dan ' + seen_[v] + ' sama-sama di kolom ' + (v + 1) + '. Isi override letter di crosscheckConfig.gs.');
+    seen_[v] = k;
   }
 
   // Sanity check pesan
