@@ -88,7 +88,7 @@ function runCrosscheckComparison() {
   const outName = cfg.COMPARISON_FILE_PREFIX + latest.name.replace(cfg.CROSSCHECK_FILE_PREFIX, '') + ' (' + ts + ')';
   const outSs = SpreadsheetApp.create(outName);
   const outFile = DriveApp.getFileById(outSs.getId());
-  DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID).addFile(outFile);
+  DriveApp.getFolderById(cfg.COMPARISON_FOLDER_ID).addFile(outFile);
   DriveApp.getRootFolder().removeFile(outFile);
 
   writeSummarySheet_(outSs, stats, detail.length);
@@ -108,7 +108,7 @@ function runCrosscheckComparison() {
 
 function findLatestCrosscheckFile_() {
   const cfg = CROSSCHECK_CONFIG;
-  const folder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const folder = DriveApp.getFolderById(cfg.CROSSCHECK_FOLDER_ID);
   const it = folder.getFiles();
   const prefixLower = cfg.CROSSCHECK_FILE_PREFIX.toLowerCase();
   let best = null;

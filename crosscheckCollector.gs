@@ -237,7 +237,7 @@ function runCrosscheckCollector() {
   const newFile = DriveApp.getFileById(newSs.getId());
 
   // Pindahkan ke folder output
-  const targetFolder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const targetFolder = DriveApp.getFolderById(cfg.CROSSCHECK_FOLDER_ID);
   newFile.moveTo(targetFolder);
 
   // Tulis data
@@ -269,7 +269,7 @@ function runCrosscheckCollector() {
  */
 function getNextCrosscheckNumber_() {
   const cfg = CROSSCHECK_CONFIG;
-  const folder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const folder = DriveApp.getFolderById(cfg.CROSSCHECK_FOLDER_ID);
   const it = folder.getFiles();
   const prefixLower = cfg.CROSSCHECK_FILE_PREFIX.toLowerCase();
   let maxN = cfg.CROSSCHECK_START_NUMBER - 1;
@@ -293,7 +293,7 @@ function getNextCrosscheckNumber_() {
 function loadPreviousCrosscheckRangkas_() {
   const cfg = CROSSCHECK_CONFIG;
   const set = new Set();
-  const folder = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const folder = DriveApp.getFolderById(cfg.CROSSCHECK_FOLDER_ID);
   const it = folder.getFiles();
   const prefixLower = cfg.CROSSCHECK_FILE_PREFIX.toLowerCase();
   while (it.hasNext()) {

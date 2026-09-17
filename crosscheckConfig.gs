@@ -35,7 +35,8 @@ const CROSSCHECK_CONFIG = {
   STATUS_NG: 'NG',
 
   // -------- Output crosscheck point --------
-  OUTPUT_FOLDER_ID: '14XGGHwrEeb__xI73OAvZHMCOpNxs5kyM',
+  // Folder untuk menyimpan file "crosscheck point N"
+  CROSSCHECK_FOLDER_ID: '1H8M3tYG7vfFFPSZ5TAuwQmZ7anSatKnT',
   CROSSCHECK_FILE_PREFIX: 'crosscheck point ',
   CROSSCHECK_START_NUMBER: 3,     // file pertama yang akan dibuat = crosscheck point 3
 
@@ -62,6 +63,8 @@ const CROSSCHECK_CONFIG = {
   ],
 
   // -------- Output komparasi --------
+  // Folder untuk menyimpan file "Komparasi Penilaian AMORE NKH vs GKA - ..."
+  COMPARISON_FOLDER_ID: '14XGGHwrEeb__xI73OAvZHMCOpNxs5kyM',
   COMPARISON_FILE_PREFIX: 'Komparasi Penilaian AMORE NKH vs GKA - ',
 
   // -------- Email --------
