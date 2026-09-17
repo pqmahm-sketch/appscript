@@ -29,33 +29,70 @@ function runCrosscheckCollector() {
     return null;
   }
 
-  const header = values[0].map(v => String(v || '').trim());
+  // --- Auto-detect baris header (header bisa berada di row 3 pada sumber ini) ---
+  // Scan 10 baris pertama, cari baris yang mengandung "No. Rangka" (case-insensitive).
+  const HEADER_SCAN_ROWS = Math.min(10, values.length);
+  let headerRowIdx = -1;
+  for (let r = 0; r < HEADER_SCAN_ROWS; r++) {
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c] || '').trim().toLowerCase();
+      if (cell === 'no. rangka' || cell === 'no rangka' || cell === 'no.rangka') {
+        headerRowIdx = r;
+        break;
+      }
+    }
+    if (headerRowIdx >= 0) break;
+  }
+  if (headerRowIdx < 0) {
+    // Fallback ke row index 2 (baris ke-3) sesuai info user
+    headerRowIdx = 2;
+    Logger.log('Header row tidak terdeteksi otomatis, pakai fallback row 3 (index 2).');
+  } else {
+    Logger.log('Header row terdeteksi di baris ke-' + (headerRowIdx + 1) + ' (index ' + headerRowIdx + ').');
+  }
+
+  const header = (values[headerRowIdx] || []).map(v => String(v || '').trim());
   let idxMD     = findColumnIndex_(header, cfg.COL_MAIN_DEALER_HEADER);
   let idxStatus = findColumnIndex_(header, cfg.COL_STATUS_AHASS_HEADER);
   let idxRangka = findColumnIndex_(header, cfg.COL_NO_RANGKA_HEADER);
   let idxClaim  = findColumnIndex_(header, cfg.COL_NO_CLAIM_HEADER);
 
-  // Fallback: MD wajib di kolom B (index 1) sesuai spesifikasi user
+  // Fallback per kolom sesuai info user: MD=B (index 1), Rangka=C (index 2), Claim=J (index 9)
   if (idxMD < 0) idxMD = 1;
-  if (idxRangka < 0) throw new Error('Header "No. Rangka" tidak ditemukan.');
-  if (idxClaim < 0)  throw new Error('Header "No. Claim" tidak ditemukan.');
+  if (idxRangka < 0) idxRangka = 2;
+  if (idxClaim  < 0) idxClaim  = 9;
+
   if (idxStatus < 0) {
-    // Coba tebak dari header yang mengandung kata "status"
+    // Coba tebak dari header yang mengandung kata "status" (mis. "Status AHASS")
     for (let i = 0; i < header.length; i++) {
       if (/status/i.test(header[i])) { idxStatus = i; break; }
+    }
+    // Kalau masih tidak ketemu, scan cell di baris data pertama untuk cari nilai "OK"/"NG"
+    if (idxStatus < 0) {
+      const firstData = values[headerRowIdx + 1] || [];
+      for (let c = 0; c < firstData.length; c++) {
+        const v = String(firstData[c] || '').trim().toUpperCase();
+        if (v === 'OK' || v === 'NG') { idxStatus = c; break; }
+      }
     }
     if (idxStatus < 0) throw new Error('Kolom Status AHASS tidak ditemukan.');
   }
 
-  Logger.log('Header found. MD=' + idxMD + ', Status=' + idxStatus +
-             ', Rangka=' + idxRangka + ', Claim=' + idxClaim);
+  // Sanity check pesan
+  Logger.log('Header row=' + (headerRowIdx + 1) +
+             ', MD col=' + (idxMD + 1) +
+             ', Status col=' + (idxStatus + 1) +
+             ', Rangka col=' + (idxRangka + 1) +
+             ', Claim col=' + (idxClaim + 1));
 
   // --- Step 2 & 3: filter & bucket per MD ---
   const mdSet = new Set(cfg.MAIN_DEALERS.map(x => String(x).trim().toUpperCase()));
   const buckets = {}; // { MD: { OK: [rows], NG: [rows] } }
   cfg.MAIN_DEALERS.forEach(md => { buckets[md.toUpperCase()] = { OK: [], NG: [] }; });
 
-  for (let r = 1; r < values.length; r++) {
+  // Data mulai dari baris SETELAH header
+  for (let r = headerRowIdx + 1; r < values.length; r++) {
     const row = values[r];
     const md = String(row[idxMD] || '').trim().toUpperCase();
     if (!mdSet.has(md)) continue;
