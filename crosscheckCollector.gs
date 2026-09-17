@@ -136,14 +136,28 @@ function runCrosscheckCollector() {
   const buckets = {}; // { MD: { OK: [rows], NG: [rows] } }
   cfg.MAIN_DEALERS.forEach(md => { buckets[md.toUpperCase()] = { OK: [], NG: [] }; });
 
+  // Diagnostics
+  const seenMdCodes = {};      // code → count
+  let totalData = 0;
+  let matchedMd = 0;
+  let matchedStatus = 0;
+
   // Data mulai dari baris SETELAH header
   for (let r = headerRowIdx + 1; r < values.length; r++) {
     const row = values[r];
-    const md = String(row[idxMD] || '').trim().toUpperCase();
+    // Extract kode MD dari format "K0Z - Astra Motor Semarang" (ambil bagian sebelum " - " atau token pertama)
+    const mdRaw = String(row[idxMD] || '').trim().toUpperCase();
+    if (!mdRaw) continue;
+    totalData++;
+    const mdMatch = mdRaw.match(/^([A-Z0-9]+)/);
+    const md = mdMatch ? mdMatch[1] : mdRaw;
+    seenMdCodes[md] = (seenMdCodes[md] || 0) + 1;
     if (!mdSet.has(md)) continue;
+    matchedMd++;
 
     const status = String(row[idxStatus] || '').trim().toUpperCase();
     if (status !== cfg.STATUS_OK && status !== cfg.STATUS_NG) continue;
+    matchedStatus++;
 
     const rangka = normUpper_(row[idxRangka]);
     const claim  = normTrim_(row[idxClaim]);
@@ -151,6 +165,23 @@ function runCrosscheckCollector() {
 
     buckets[md][status].push({ rangka: rangka, claim: claim, rowIndex: r });
   }
+
+  // Log ringkasan diagnostik
+  Logger.log('Total baris data: ' + totalData +
+             ' | MD unik terlihat: ' + Object.keys(seenMdCodes).length +
+             ' | Match MD config: ' + matchedMd +
+             ' | Match Status OK/NG: ' + matchedStatus);
+  Logger.log('MD codes ditemukan (top 25): ' +
+    JSON.stringify(Object.keys(seenMdCodes)
+      .sort((a,b) => seenMdCodes[b] - seenMdCodes[a])
+      .slice(0, 25)
+      .map(k => k + ':' + seenMdCodes[k])));
+  // Bucket size per MD (hanya yang match config)
+  const bucketSummary = {};
+  Object.keys(buckets).forEach(md => {
+    bucketSummary[md] = 'OK=' + buckets[md].OK.length + ' NG=' + buckets[md].NG.length;
+  });
+  Logger.log('Bucket per MD: ' + JSON.stringify(bucketSummary));
 
   // --- Step 4: exclude rangka/claim yang sudah pernah muncul di crosscheck sebelumnya ---
   const usedRangka = loadPreviousCrosscheckRangkas_();
