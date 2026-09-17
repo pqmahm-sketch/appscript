@@ -31,8 +31,8 @@ function runCrosscheckComparison() {
   const ccHeader = ccVals[0].map(v => String(v || '').trim());
   let idxCcRangka = findColumnIndex_(ccHeader, 'No. Rangka');
   let idxCcClaim  = findColumnIndex_(ccHeader, 'No. Claim');
-  if (idxCcRangka < 0) idxCcRangka = 3;
-  if (idxCcClaim < 0)  idxCcClaim  = 4;
+  if (idxCcRangka < 0) idxCcRangka = 2;   // fallback: kolom C (setelah No., Main Dealer)
+  if (idxCcClaim < 0)  idxCcClaim  = 3;   // fallback: kolom D
 
   const rangkaList = [];
   const claimByRangka = {};

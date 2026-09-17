@@ -29,8 +29,8 @@ const CROSSCHECK_CONFIG = {
     'I01', 'I3Z', 'J10', 'J20'
   ],
 
-  // Sampling per MD (2 baris per MD, prefer mix OK+NG bila tersedia)
-  ROWS_PER_MD: 2,
+  // Sampling per MD (4 baris per MD, prefer mix 2 OK + 2 NG bila tersedia)
+  ROWS_PER_MD: 4,
   STATUS_OK: 'OK',
   STATUS_NG: 'NG',
 

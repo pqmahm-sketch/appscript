@@ -204,12 +204,14 @@ function runCrosscheckCollector() {
     shuffleInPlace_(okList);
     shuffleInPlace_(ngList);
 
-    // Prefer 1 OK + 1 NG
+    // Prefer mix OK + NG seimbang (mis. 4 baris → 2 OK + 2 NG)
+    const targetOk = Math.floor(cfg.ROWS_PER_MD / 2);
+    const targetNg = cfg.ROWS_PER_MD - targetOk;
     const takeMd = [];
-    if (okList.length > 0) takeMd.push(okList.shift());
-    if (ngList.length > 0) takeMd.push(ngList.shift());
+    for (let i = 0; i < targetOk && okList.length > 0; i++) takeMd.push(okList.shift());
+    for (let i = 0; i < targetNg && ngList.length > 0; i++) takeMd.push(ngList.shift());
 
-    // Kalau salah satu belum tersedia, isi dengan sisa dari list yang ada
+    // Isi sisa slot dari list yang masih ada (kalau salah satu kurang, ambil dari yang lain)
     while (takeMd.length < cfg.ROWS_PER_MD) {
       if (okList.length > 0)      takeMd.push(okList.shift());
       else if (ngList.length > 0) takeMd.push(ngList.shift());
@@ -241,8 +243,8 @@ function runCrosscheckCollector() {
   // Tulis data
   const sheet = newSs.getSheets()[0];
   sheet.setName('Crosscheck List');
-  const out = [['No.', 'Main Dealer', 'Status AHASS', 'No. Rangka', 'No. Claim']];
-  picked.forEach((p, i) => out.push([i + 1, p.md, p.status, p.rangka, p.claim]));
+  const out = [['No.', 'Main Dealer', 'No. Rangka', 'No. Claim']];
+  picked.forEach((p, i) => out.push([i + 1, p.md, p.rangka, p.claim]));
   sheet.getRange(1, 1, out.length, out[0].length).setValues(out);
   sheet.getRange(1, 1, 1, out[0].length)
        .setFontWeight('bold')
@@ -250,9 +252,8 @@ function runCrosscheckCollector() {
        .setFontColor('#FFFFFF');
   sheet.setColumnWidth(1, 50);
   sheet.setColumnWidth(2, 100);
-  sheet.setColumnWidth(3, 120);
-  sheet.setColumnWidth(4, 200);
-  sheet.setColumnWidth(5, 260);
+  sheet.setColumnWidth(3, 200);
+  sheet.setColumnWidth(4, 260);
   sheet.setFrozenRows(1);
 
   Logger.log('File dibuat: ' + fileName + ' (rows=' + picked.length + ') → ' + newFile.getUrl());
