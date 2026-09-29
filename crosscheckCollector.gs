@@ -256,10 +256,14 @@ function runCrosscheckCollector() {
   sheet.setColumnWidth(4, 260);
   sheet.setFrozenRows(1);
 
-  Logger.log('File dibuat: ' + fileName + ' (rows=' + picked.length + ') → ' + newFile.getUrl());
+  const fileUrl = newFile.getUrl();
+  Logger.log('File dibuat: ' + fileName + ' (rows=' + picked.length + ') → ' + fileUrl);
+
+  notifyCrosscheckReady_(fileName, fileUrl, picked.length);
+
   Logger.log('=== runCrosscheckCollector DONE (elapsed ' + ((new Date() - startTs)/1000) + 's) ===');
 
-  return { fileId: newSs.getId(), fileName: fileName, count: picked.length, url: newFile.getUrl() };
+  return { fileId: newSs.getId(), fileName: fileName, count: picked.length, url: fileUrl };
 }
 
 /**

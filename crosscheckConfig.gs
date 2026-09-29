@@ -67,11 +67,23 @@ const CROSSCHECK_CONFIG = {
   COMPARISON_FOLDER_ID: '14XGGHwrEeb__xI73OAvZHMCOpNxs5kyM',
   COMPARISON_FILE_PREFIX: 'Komparasi Penilaian AMORE NKH vs GKA - ',
 
-  // -------- Email --------
+  // -------- Email komparasi --------
   // GANTI dengan email penerima yang sesungguhnya sebelum deploy.
   EMAIL_TO: 'pqm.ahm@gmail.com',
   EMAIL_CC: '',
-  EMAIL_SENDER_NAME: 'PQM AHM - Auto Crosscheck'
+  EMAIL_SENDER_NAME: 'PQM AHM - Auto Crosscheck',
+
+  // -------- Notifikasi email crosscheck point --------
+  NOTIF_CROSSCHECK_TO: '',           // isi email penerima
+  NOTIF_CROSSCHECK_CC: '',           // isi CC (kosongkan jika tidak perlu)
+  NOTIF_CROSSCHECK_SUBJECT: '',      // isi subject email
+  NOTIF_CROSSCHECK_SENDER_NAME: 'PQM AHM - Auto Crosscheck',
+
+  // -------- Notifikasi email komparasi --------
+  NOTIF_COMPARISON_TO: '',           // isi email penerima
+  NOTIF_COMPARISON_CC: '',           // isi CC (kosongkan jika tidak perlu)
+  NOTIF_COMPARISON_SUBJECT: '',      // isi subject email
+  NOTIF_COMPARISON_SENDER_NAME: 'PQM AHM - Auto Crosscheck'
 };
 
 /**

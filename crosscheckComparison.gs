@@ -97,8 +97,11 @@ function runCrosscheckComparison() {
   const url = outFile.getUrl();
   Logger.log('Output komparasi: ' + outName + ' → ' + url);
 
-  // --- Step 7: kirim email ---
+  // --- Step 7: kirim email komparasi (existing) ---
   sendComparisonEmail_(outName, url, stats, latest);
+
+  // --- Step 8: notifikasi file komparasi tersedia ---
+  notifyComparisonReady_(outName, url, stats);
 
   Logger.log('=== runCrosscheckComparison DONE (elapsed ' + ((new Date() - startTs)/1000) + 's) ===');
   return { fileId: outSs.getId(), fileName: outName, url: url, stats: stats };
