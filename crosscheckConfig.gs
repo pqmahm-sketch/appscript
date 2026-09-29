@@ -78,12 +78,37 @@ const CROSSCHECK_CONFIG = {
   NOTIF_CROSSCHECK_CC: '',           // isi CC (kosongkan jika tidak perlu)
   NOTIF_CROSSCHECK_SUBJECT: '',      // isi subject email
   NOTIF_CROSSCHECK_SENDER_NAME: 'PQM AHM - Auto Crosscheck',
+  // Body email crosscheck point.
+  // Placeholder yang tersedia: {fileName}, {rowCount}, {fileUrl}
+  NOTIF_CROSSCHECK_BODY:
+    'Dear Tim,\n\n' +
+    'File crosscheck point terbaru sudah tersedia.\n\n' +
+    'Nama file  : {fileName}\n' +
+    'Jumlah data: {rowCount} baris\n' +
+    'Link file  : {fileUrl}\n\n' +
+    'Silakan cek dan lakukan verifikasi.\n\n' +
+    'Terima kasih.\n' +
+    '---\n' +
+    'Email ini dikirim otomatis oleh sistem crosscheck AMORE.',
 
   // -------- Notifikasi email komparasi --------
   NOTIF_COMPARISON_TO: '',           // isi email penerima
   NOTIF_COMPARISON_CC: '',           // isi CC (kosongkan jika tidak perlu)
   NOTIF_COMPARISON_SUBJECT: '',      // isi subject email
-  NOTIF_COMPARISON_SENDER_NAME: 'PQM AHM - Auto Crosscheck'
+  NOTIF_COMPARISON_SENDER_NAME: 'PQM AHM - Auto Crosscheck',
+  // Body email komparasi.
+  // Placeholder yang tersedia: {fileName}, {fileUrl}, {summary}
+  // {summary} berisi ringkasan: total data, % sesuai, % tidak sesuai (otomatis dari stats)
+  NOTIF_COMPARISON_BODY:
+    'Dear Tim,\n\n' +
+    'File hasil komparasi penilaian NKH vs GKA sudah tersedia.\n\n' +
+    'Nama file : {fileName}\n' +
+    'Link file : {fileUrl}\n' +
+    '{summary}\n' +
+    'Silakan cek untuk detail lengkap.\n\n' +
+    'Terima kasih.\n' +
+    '---\n' +
+    'Email ini dikirim otomatis oleh sistem crosscheck AMORE.'
 };
 
 /**

@@ -6,8 +6,12 @@
  *   - runCrosscheckCollector()  → notifyCrosscheckReady_()
  *   - runCrosscheckComparison() → notifyComparisonReady_()
  *
- * Konfigurasi email (TO, CC, SUBJECT, SENDER_NAME) ada di crosscheckConfig.gs.
+ * Konfigurasi email (TO, CC, SUBJECT, SENDER_NAME, BODY) ada di crosscheckConfig.gs.
  * Isi dulu sebelum deploy — fungsi akan skip jika TO masih kosong.
+ *
+ * Placeholder pada BODY:
+ *   Crosscheck : {fileName}, {rowCount}, {fileUrl}
+ *   Komparasi  : {fileName}, {fileUrl}, {summary}
  */
 
 /**
@@ -26,16 +30,10 @@ function notifyCrosscheckReady_(fileName, fileUrl, rowCount) {
 
   const subject = cfg.NOTIF_CROSSCHECK_SUBJECT || ('File Crosscheck Point Tersedia: ' + fileName);
 
-  const body =
-    'Dear Tim,\n\n' +
-    'File crosscheck point terbaru sudah tersedia.\n\n' +
-    'Nama file  : ' + fileName + '\n' +
-    'Jumlah data: ' + rowCount + ' baris\n' +
-    'Link file  : ' + fileUrl + '\n\n' +
-    'Silakan cek dan lakukan verifikasi.\n\n' +
-    'Terima kasih.\n' +
-    '---\n' +
-    'Email ini dikirim otomatis oleh sistem crosscheck AMORE.';
+  const body = (cfg.NOTIF_CROSSCHECK_BODY || '')
+    .replace(/\{fileName\}/g, fileName)
+    .replace(/\{rowCount\}/g, String(rowCount))
+    .replace(/\{fileUrl\}/g, fileUrl);
 
   const options = { name: cfg.NOTIF_CROSSCHECK_SENDER_NAME || 'PQM AHM' };
   const cc = (cfg.NOTIF_CROSSCHECK_CC || '').trim();
@@ -51,9 +49,9 @@ function notifyCrosscheckReady_(fileName, fileUrl, rowCount) {
 
 /**
  * Kirim notifikasi bahwa file komparasi penilaian sudah tersedia.
- * @param {string} fileName  - Nama file, misal "Komparasi Penilaian AMORE NKH vs GKA - 3 (2026-09-29)"
+ * @param {string} fileName  - Nama file komparasi
  * @param {string} fileUrl   - URL Google Sheets
- * @param {Object} stats     - Objek statistik dari computeStats_ (opsional, untuk info ringkas)
+ * @param {Object} stats     - Objek statistik dari computeStats_ (opsional)
  */
 function notifyComparisonReady_(fileName, fileUrl, stats) {
   const cfg = CROSSCHECK_CONFIG;
@@ -78,16 +76,10 @@ function notifyComparisonReady_(fileName, fileUrl, stats) {
       '  Tidak Sesuai   : ' + (total - match) + ' (' + (100 - parseFloat(pct)).toFixed(1) + '%)\n';
   }
 
-  const body =
-    'Dear Tim,\n\n' +
-    'File hasil komparasi penilaian NKH vs GKA sudah tersedia.\n\n' +
-    'Nama file : ' + fileName + '\n' +
-    'Link file : ' + fileUrl + '\n' +
-    summary + '\n' +
-    'Silakan cek untuk detail lengkap.\n\n' +
-    'Terima kasih.\n' +
-    '---\n' +
-    'Email ini dikirim otomatis oleh sistem crosscheck AMORE.';
+  const body = (cfg.NOTIF_COMPARISON_BODY || '')
+    .replace(/\{fileName\}/g, fileName)
+    .replace(/\{fileUrl\}/g, fileUrl)
+    .replace(/\{summary\}/g, summary);
 
   const options = { name: cfg.NOTIF_COMPARISON_SENDER_NAME || 'PQM AHM' };
   const cc = (cfg.NOTIF_COMPARISON_CC || '').trim();
